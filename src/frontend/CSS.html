@@ -1,0 +1,180 @@
+<style>
+  /* 基本スタイル */
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f5f5f5;
+  }
+  
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background-color: white;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  h1, h2 {
+    color: #333;
+  }
+  
+  /* ヘッダー部 */
+  .header {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .header h1 {
+    margin: 0;
+    font-size: 24px;
+  }
+  
+  .header p {
+    margin: 10px 0 0;
+    color: #666;
+  }
+  
+  /* フォームコントロール */
+  .form-control {
+    width: 100%;
+    padding: 8px;
+    margin: 5px 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-sizing: border-box;
+  }
+  
+  textarea.form-control {
+    min-height: 100px;
+    resize: vertical;
+  }
+  
+  /* ボタン */
+  .action {
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin: 5px;
+  }
+  
+  .action:hover {
+    background-color: #3367d6;
+  }
+  
+  /* セクション */
+  .profile-section,
+  .file-section,
+  .settings-section,
+  .preview-section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+  }
+  
+  /* タブ */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+  }
+  
+  .tab-button {
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  
+  .tab-button.active {
+    border-bottom-color: #4285f4;
+    color: #4285f4;
+  }
+  
+  .tab-pane {
+    display: none;
+  }
+  
+  .tab-pane.active {
+    display: block;
+  }
+  
+  /* プレビュー */
+  .preview-table {
+    max-height: 400px;
+    overflow: auto;
+    margin: 20px 0;
+    border: 1px solid #ddd;
+  }
+  
+  .preview-table table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .preview-table th,
+  .preview-table td {
+    padding: 8px;
+    border: 1px solid #ddd;
+    text-align: left;
+  }
+  
+  .preview-table th {
+    background-color: #f5f5f5;
+    position: sticky;
+    top: 0;
+  }
+  
+  /* ヘルプテキスト */
+  .help-text {
+    color: #666;
+    font-size: 0.9em;
+    margin-top: 5px;
+  }
+  
+  /* ファイル情報 */
+  .file-info {
+    margin: 10px 0;
+    padding: 10px;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+  }
+  
+  /* チェックボックス */
+  input[type="checkbox"] {
+    margin-right: 5px;
+  }
+  
+  /* レスポンシブデザイン */
+  @media (max-width: 768px) {
+    .container {
+      padding: 10px;
+    }
+    
+    .tabs {
+      flex-wrap: wrap;
+    }
+    
+    .tab-button {
+      flex: 1 0 50%;
+    }
+    
+    .profile-controls,
+    .file-controls {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .action {
+      width: 100%;
+      margin: 5px 0;
+    }
+  }
+</style> 
