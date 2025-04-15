@@ -163,33 +163,57 @@
   
   // ファイルの選択
   function selectFile() {
-    const picker = new google.picker.PickerBuilder()
-      .addView(google.picker.ViewId.DOCS)
-      .setOAuthToken(google.script.run.getOAuthToken())
-      .setDeveloperKey(google.script.run.getDeveloperKey())
-      .setCallback(pickerCallback)
-      .build();
-    picker.setVisible(true);
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.csv';
+    fileInput.style.display = 'none';
+    
+    fileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const content = e.target.result;
+          google.script.run
+            .withSuccessHandler(function(data) {
+              currentData = data;
+              showPreview(data);
+              document.getElementById('selected-file').textContent = file.name;
+            })
+            .withFailureHandler(showError)
+            .processFileContent(content);
+        };
+        reader.readAsText(file);
+      }
+    });
+    
+    document.body.appendChild(fileInput);
+    fileInput.click();
+    document.body.removeChild(fileInput);
   }
   
-  // ファイル選択後のコールバック
-  function pickerCallback(data) {
-    if (data.action === google.picker.Action.PICKED) {
-      const fileId = data.docs[0].id;
-      currentFile = data.docs[0];
-      
-      // 選択されたファイルの情報を表示
-      document.getElementById('selected-file').textContent = currentFile.name;
-      
-      // CSVファイルの読み込み
-      google.script.run
-        .withSuccessHandler(function(data) {
-          currentData = data;
-          showPreview(data);
-        })
-        .withFailureHandler(showError)
-        .readCsvFromDrive(fileId);
+  // ファイルの保存
+  function saveFile() {
+    if (!processedData) {
+      showError('変換を実行してください');
+      return;
     }
+    
+    const encoding = document.getElementById('encoding').value;
+    // encodingの値に基づいて保存形式を決定
+    const format = encoding === 'utf-8' ? 'csv' : 'sheets';
+    const fileName = 'converted_data.' + (format === 'sheets' ? 'xlsx' : 'csv');
+    
+    google.script.run
+      .withSuccessHandler(function(fileId) {
+        showMessage('ファイルを保存しました');
+        // 保存したファイルのリンクを表示
+        const fileUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
+        document.getElementById('selected-file').innerHTML = 
+          '<a href="' + fileUrl + '" target="_blank">' + fileName + '</a>';
+      })
+      .withFailureHandler(showError)
+      .saveResultToDrive(processedData, fileName, format);
   }
   
   // データの変換処理
@@ -223,37 +247,6 @@
       })
       .withFailureHandler(showError)
       .processData(currentData, settings);
-  }
-  
-  // ファイルの保存
-  function saveFile() {
-    if (!processedData) {
-      showError('変換を実行してください');
-      return;
-    }
-    
-    const format = document.getElementById('encoding').value;
-    const fileName = currentFile.name.replace('.csv', '') + '_converted.' + (format === 'sheets' ? 'xlsx' : 'csv');
-    
-    // 保存先フォルダの選択
-    const picker = new google.picker.PickerBuilder()
-      .addView(google.picker.ViewId.FOLDERS)
-      .setOAuthToken(google.script.run.getOAuthToken())
-      .setDeveloperKey(google.script.run.getDeveloperKey())
-      .setCallback(function(data) {
-        if (data.action === google.picker.Action.PICKED) {
-          const folderId = data.docs[0].id;
-          
-          google.script.run
-            .withSuccessHandler(function(fileId) {
-              showMessage('ファイルを保存しました');
-            })
-            .withFailureHandler(showError)
-            .saveResultToDrive(processedData, fileName, format, folderId);
-        }
-      })
-      .build();
-    picker.setVisible(true);
   }
   
   // プレビューの表示

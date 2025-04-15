@@ -45,12 +45,11 @@ function readCsvFromDrive(fileId) {
  * @param {Array} data - 保存するデータ
  * @param {string} fileName - 保存するファイル名
  * @param {string} format - 保存形式（'csv'または'sheets'）
- * @param {string} folderId - 保存先フォルダID
  * @return {string} 保存したファイルのID
  */
-function saveResultToDrive(data, fileName, format, folderId) {
+function saveResultToDrive(data, fileName, format) {
   try {
-    const folder = folderId ? DriveApp.getFolderById(folderId) : DriveApp.getRootFolder();
+    const folder = DriveApp.getRootFolder();
     let file;
     
     if (format === 'csv') {
@@ -64,12 +63,14 @@ function saveResultToDrive(data, fileName, format, folderId) {
       file = DriveApp.getFileById(ss.getId());
       folder.addFile(file);
       DriveApp.getRootFolder().removeFile(file);
+    } else {
+      throw new Error('無効な保存形式です');
     }
     
     return file.getId();
   } catch (error) {
     console.error('ファイルの保存に失敗しました:', error);
-    throw new Error('ファイルの保存に失敗しました');
+    throw new Error('ファイルの保存に失敗しました: ' + error.message);
   }
 }
 
@@ -101,5 +102,56 @@ function getProfiles() {
   } catch (error) {
     console.error('プロファイルの取得に失敗しました:', error);
     throw new Error('プロファイルの取得に失敗しました');
+  }
+}
+
+/**
+ * ファイル選択用のHTMLを生成する
+ * @return {string} HTML文字列
+ */
+function getFilePickerHtml() {
+  return `
+    <div style="padding: 20px;">
+      <h3>CSVファイルを選択</h3>
+      <input type="file" id="fileInput" accept=".csv" style="margin: 10px 0;">
+      <div id="status" style="margin: 10px 0;"></div>
+    </div>
+    <script>
+      document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const content = e.target.result;
+            google.script.run
+              .withSuccessHandler(function(data) {
+                document.getElementById('status').innerHTML = 'ファイルを読み込みました';
+                setTimeout(function() {
+                  google.script.host.close();
+                }, 1000);
+              })
+              .withFailureHandler(function(error) {
+                document.getElementById('status').innerHTML = 'エラー: ' + error;
+              })
+              .processFileContent(content);
+          };
+          reader.readAsText(file);
+        }
+      });
+    </script>
+  `;
+}
+
+/**
+ * ファイルの内容を処理する
+ * @param {string} content - CSVファイルの内容
+ * @return {Array} CSVデータの二次元配列
+ */
+function processFileContent(content) {
+  try {
+    return Utilities.parseCsv(content);
+  } catch (error) {
+    console.error('CSVファイルの処理に失敗しました:', error);
+    throw new Error('CSVファイルの処理に失敗しました');
   }
 } 
