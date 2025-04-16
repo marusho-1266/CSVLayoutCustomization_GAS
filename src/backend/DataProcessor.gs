@@ -13,11 +13,7 @@ function processData(data, settings) {
   try {
     let result = [...data];
     
-    // 各変換処理を順番に実行
-    if (settings.reorder) {
-      result = reorderColumns(result, settings.reorder);
-    }
-    
+    // 各変換処理を順番に実行   
     if (settings.merge) {
       result = mergeColumns(result, settings.merge);
     }
@@ -41,6 +37,10 @@ function processData(data, settings) {
     if (settings.get_pref_code && settings.get_pref_code.enabled) {
       result = getPrefectureCodes(result, settings.get_pref_code.source_column, settings.get_pref_code.new_column);
     }
+
+    if (settings.reorder) {
+      result = reorderColumns(result, settings.reorder);
+    }
     
     return result;
   } catch (error) {
@@ -56,29 +56,36 @@ function processData(data, settings) {
  * @return {Array} 並べ替え後のデータ
  */
 function reorderColumns(data, order) {
-  const columns = order.split(',');
-  const header = data[0];
-  const result = [header];
+  // カンマで区切り、前後の空白を除去し、空の要素を除外して新しいヘッダーを作成
+  const newHeader = order.split(',').map(s => s.trim()).filter(s => s !== '');
+  const originalHeader = data[0];
+  const result = [newHeader]; 
   
-  // ヘッダーのインデックスを取得
+  // 元のヘッダーのインデックスを取得 (念のため空白を除去して比較)
   const headerIndexes = {};
-  header.forEach((col, index) => {
-    headerIndexes[col] = index;
+  originalHeader.forEach((col, index) => {
+    headerIndexes[col.trim()] = index;
   });
   
-  // 新しい列順序でデータを再構築
+  // 新しい列順序でデータを再構築 (データ行のみ)
   for (let i = 1; i < data.length; i++) {
-    const row = data[i];
+    const originalRow = data[i];
     const newRow = [];
-    
-    columns.forEach(col => {
-      if (col === '') {
-        newRow.push(''); // 空の列
-      } else if (headerIndexes[col] !== undefined) {
-        newRow.push(row[headerIndexes[col]]);
+
+    // 新しいヘッダーの順序でループ
+    newHeader.forEach(colName => {
+      // newHeader に含まれる列名に対応する元の列インデックスを探す
+      const originalIndex = headerIndexes[colName];
+      if (originalIndex !== undefined && originalRow.length > originalIndex) {
+        // 元の行にデータがあれば追加
+        newRow.push(originalRow[originalIndex]);
+      } else {
+        // 元の列が存在しない、または元の行にデータがない場合は空文字を追加
+        // (例: order に元のCSVにない列名が指定された場合や、行によって列数が異なる場合)
+        newRow.push('');
       }
     });
-    
+
     result.push(newRow);
   }
   
@@ -92,28 +99,104 @@ function reorderColumns(data, order) {
  * @return {Array} 結合後のデータ
  */
 function mergeColumns(data, mergeSettings) {
-  const settings = mergeSettings.split('\n');
-  let result = [...data];
-  
-  settings.forEach(setting => {
-    const [newCol, sources] = setting.split(':');
-    const [cols, delimiter] = sources.split(' ');
-    const sourceCols = cols.split(',');
-    
-    // ヘッダーに新しい列を追加
-    result[0].push(newCol);
-    
-    // 各行のデータを結合
-    for (let i = 1; i < result.length; i++) {
-      const values = sourceCols.map(col => {
-        const colIndex = result[0].indexOf(col);
-        return colIndex !== -1 ? result[i][colIndex] : '';
-      });
-      result[i].push(values.join(delimiter || ''));
-    }
+  // 0. 元データの準備と設定のパース
+  const originalHeader = data[0];
+  const originalData = data.slice(1);
+  const resultHeader = [...originalHeader]; // 最終的なヘッダー (最初は元のコピー)
+  const resultData = originalData.map(row => [...row]); // 最終的なデータ (最初は元のコピー)
+
+  // 元ヘッダーのインデックスを事前に作成 (空白除去)
+  const originalHeaderIndexes = new Map();
+  originalHeader.forEach((col, index) => {
+    originalHeaderIndexes.set(col.trim(), index);
   });
-  
-  return result;
+
+  // 設定をパースして、新しい列の情報と処理内容を保持
+  const parsedSettings = mergeSettings
+    .split('\n')
+    .map(line => line.trim()) // 前後の空白を除去
+    .filter(line => line !== '') // 空行を除去
+    .map(setting => {
+      const parts = setting.split(':');
+      if (parts.length !== 2 || parts[0].trim() === '' || parts[1].trim() === '') {
+        console.warn(`Invalid merge setting format (skipping): ${setting}`);
+        return null; // 不正なフォーマットはスキップ
+      }
+      const newColName = parts[0].trim();
+      const sourcesPart = parts[1].trim();
+
+      // 区切り文字を正しく抽出 (最初のスペース以降を区切り文字とする)
+      const firstSpaceIndex = sourcesPart.indexOf(' ');
+      let sourceColNamesStr, delimiter;
+      if (firstSpaceIndex === -1) {
+        // スペースがない -> 区切り文字なし
+        sourceColNamesStr = sourcesPart;
+        delimiter = '';
+      } else {
+        sourceColNamesStr = sourcesPart.substring(0, firstSpaceIndex);
+        delimiter = sourcesPart.substring(firstSpaceIndex + 1); // スペース以降全て
+      }
+
+      const sourceCols = sourceColNamesStr.split(',').map(s => s.trim()).filter(s => s !== '');
+
+      if (sourceCols.length === 0) {
+          console.warn(`Invalid merge setting format (no source columns): ${setting}`);
+          return null; // ソース列がない場合はスキップ
+      }
+
+      return { newColName, sourceCols, delimiter };
+    })
+    .filter(setting => setting !== null); // 不正な設定を除外
+
+  // 1. 新しい列をヘッダーに追加
+  const newColsToAdd = [];
+  parsedSettings.forEach(setting => {
+    // まだヘッダーに追加されていない新しい列名のみを収集
+    // かつ、元のヘッダーにも存在しない列名のみを対象とする（既存列の上書きはしない前提）
+    if (!resultHeader.includes(setting.newColName) && !originalHeaderIndexes.has(setting.newColName)) {
+      newColsToAdd.push(setting.newColName);
+    }
+    // もし既存列を上書きしたい場合は、ここのロジックを変更する必要がある
+  });
+
+  // 収集した新しい列名を一括でヘッダーに追加
+  resultHeader.push(...newColsToAdd);
+
+  // 追加した列の数だけ、各データ行の末尾に空文字を追加
+  if (newColsToAdd.length > 0) {
+    resultData.forEach(row => {
+      for (let k = 0; k < newColsToAdd.length; k++) {
+        row.push(''); // 新しい列のためのプレースホルダー
+      }
+    });
+  }
+
+  // 2. 新しいヘッダーでのインデックスを作成
+  const resultHeaderIndexes = new Map();
+  resultHeader.forEach((col, index) => {
+    resultHeaderIndexes.set(col, index); // 新しいヘッダーはtrim済みのはず
+  });
+
+  // 3. 各データ行に対して結合処理を実行
+  parsedSettings.forEach(setting => {
+    const targetColIndex = resultHeaderIndexes.get(setting.newColName);
+    if (targetColIndex === undefined) return; // ヘッダーに追加されていない場合はスキップ(通常発生しないはず)
+
+    resultData.forEach(row => {
+      const valuesToJoin = setting.sourceCols.map(sourceColName => {
+        const originalIndex = originalHeaderIndexes.get(sourceColName); // 元のインデックスを使用
+        if (originalIndex !== undefined && row.length > originalIndex) {
+          return row[originalIndex]; // 元のデータから取得
+        }
+        return ''; // 元の列が見つからない場合は空文字
+      });
+      // 対応する新しい列の位置に結合結果をセット
+      row[targetColIndex] = valuesToJoin.join(setting.delimiter);
+    });
+  });
+
+  // 4. 最終結果を組み立てる (ヘッダー + データ)
+  return [resultHeader, ...resultData];
 }
 
 /**
