@@ -29,15 +29,15 @@ function processData(data, settings) {
     if (settings.add) {
       result = addCharacters(result, settings.add);
     }
+
+    if (settings.get_pref_code && settings.get_pref_code.enabled) {
+      result = getPrefectureCodes(result, settings.get_pref_code.source_column, settings.get_pref_code.new_column);
+    }
     
     if (settings.remove_prefecture && settings.remove_prefecture.enabled) {
       result = removePrefectureNames(result, settings.remove_prefecture.column);
     }
     
-    if (settings.get_pref_code && settings.get_pref_code.enabled) {
-      result = getPrefectureCodes(result, settings.get_pref_code.source_column, settings.get_pref_code.new_column);
-    }
-
     if (settings.reorder) {
       result = reorderColumns(result, settings.reorder);
     }
