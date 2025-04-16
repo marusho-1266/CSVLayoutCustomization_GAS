@@ -238,18 +238,22 @@
 
     const format = 'csv';
     const fileName = 'converted_data.csv'; // ファイル名を固定または入力ファイル名から生成
+    const removeHeader = document.getElementById('remove-header').checked;
 
     google.script.run
       .withSuccessHandler(showSaveSuccess) // 成功ハンドラを共通化
       .withFailureHandler(showError)
-      // saveResultToDrive から encoding 引数を削除
-      .saveResultToDrive(processedData, fileName, format);
+      .saveResultToDrive(processedData, fileName, format, removeHeader);
   }
 
   // 成功時の処理
   function showSaveSuccess(fileId) {
     const fileName = 'converted_data.csv'; // 固定ファイル名
-    showMessage('ファイル ( ' + fileName + ' ) をGoogle Driveに保存しました');
+    const removeHeader = document.getElementById('remove-header').checked;
+    const message = removeHeader ? 
+      'ファイル ( ' + fileName + ' ) をヘッダー行を除去してGoogle Driveに保存しました' :
+      'ファイル ( ' + fileName + ' ) をGoogle Driveに保存しました';
+    showMessage(message);
     const fileUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
     // 選択ファイル表示エリアにリンクを表示
     document.getElementById('selected-file').innerHTML =

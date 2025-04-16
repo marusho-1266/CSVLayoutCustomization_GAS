@@ -58,16 +58,19 @@ function readCsvFromDrive(fileId) {
  * @param {Array} data - 保存するデータ
  * @param {string} fileName - 保存するファイル名
  * @param {string} format - 保存形式（'csv'または'sheets'）
+ * @param {boolean} removeHeader - ヘッダー行を除去するかどうか
  * @return {string} 保存したファイルのID
  */
-function saveResultToDrive(data, fileName, format) { // encoding 引数を削除
+function saveResultToDrive(data, fileName, format, removeHeader) {
   try {
     const folder = DriveApp.getRootFolder(); // 保存先はルートフォルダ固定
     let file;
     let fileId;
 
     if (format === 'csv') {
-      const csvContent = data.map(row => row.join(',')).join('\n');
+      // ヘッダー除去の設定に応じてデータを処理
+      const dataToSave = removeHeader ? data.slice(1) : data;
+      const csvContent = dataToSave.map(row => row.join(',')).join('\n');
       // ▼▼▼ 文字コードは UTF-8 に固定 ▼▼▼
       const charset = 'UTF-8';
       const blob = Utilities.newBlob(csvContent, 'text/csv; charset=' + charset, fileName);
@@ -79,7 +82,9 @@ function saveResultToDrive(data, fileName, format) { // encoding 引数を削除
       const sheet = ss.getActiveSheet();
       // データがない場合のヘッダー行のみの書き込みに対応
       if (data.length > 0 && data[0].length > 0) {
-        sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
+        // ヘッダー除去の設定に応じてデータを処理
+        const dataToSave = removeHeader ? data.slice(1) : data;
+        sheet.getRange(1, 1, dataToSave.length, dataToSave[0].length).setValues(dataToSave);
       } else if (data.length > 0) { // ヘッダー行のみの場合
         sheet.getRange(1, 1, 1, data[0].length).setValues([data[0]]);
       }
