@@ -89,6 +89,7 @@
       document.getElementById('extract-settings').value = '';
       document.getElementById('remove-settings').value = '';
       document.getElementById('add-settings').value = '';
+      document.getElementById('replace-settings').value = '';      
       document.getElementById('remove-prefecture-enabled').checked = false;
       document.getElementById('remove-prefecture-columns').value = '';
       document.getElementById('get-pref-code-enabled').checked = false;
@@ -107,6 +108,7 @@
         document.getElementById('extract-settings').value = profile.extract || '';
         document.getElementById('remove-settings').value = profile.remove || '';
         document.getElementById('add-settings').value = profile.add || '';
+        document.getElementById('replace-settings').value = profile.replace || '';
 
         // 都道府県設定
         if (profile.remove_prefecture) {
@@ -145,6 +147,7 @@
       extract: document.getElementById('extract-settings').value,
       remove: document.getElementById('remove-settings').value,
       add: document.getElementById('add-settings').value,
+      replace: document.getElementById('replace-settings').value,
       remove_prefecture: {
         enabled: document.getElementById('remove-prefecture-enabled').checked,
         column: document.getElementById('remove-prefecture-columns').value
@@ -273,6 +276,7 @@
       extract: document.getElementById('extract-settings').value,
       remove: document.getElementById('remove-settings').value,
       add: document.getElementById('add-settings').value,
+      replace: document.getElementById('replace-settings').value,
       remove_prefecture: {
         enabled: document.getElementById('remove-prefecture-enabled').checked,
         column: document.getElementById('remove-prefecture-columns').value

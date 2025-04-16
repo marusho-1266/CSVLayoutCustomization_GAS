@@ -30,6 +30,10 @@ function processData(data, settings) {
       result = addCharacters(result, settings.add);
     }
 
+    if (settings.replace) {
+      result = replaceStrings(result, settings.replace);
+    }
+
     if (settings.get_pref_code && settings.get_pref_code.enabled) {
       result = getPrefectureCodes(result, settings.get_pref_code.source_column, settings.get_pref_code.new_column);
     }
@@ -390,3 +394,78 @@ function getPrefectureCode(prefecture) {
   
   return codes[prefecture] || '';
 } 
+
+/**
+ * 文字列の置換
+ * 指定された列内の文字列を検索し、別の文字列に置換します。
+ * @param {Array<Array<string>>} data - 変換対象のデータ (最初の行はヘッダー)
+ * @param {string} replaceSettings - 置換設定。各行に "対象列名:検索文字列:置換後文字列" の形式で記述。
+ *                                   例: "備考:（株）:(株式会社)\n住所:東京都:ＴＫ都"
+ * @return {Array<Array<string>>} 置換後のデータ
+ */
+function replaceStrings(data, replaceSettings) {
+  // 元データを変更しないようにディープコピーを作成
+  let result = data.map(row => [...row]);
+  const header = result[0];
+  // ヘッダー名とインデックスのマップを作成 (空白除去)
+  const headerIndexes = new Map(header.map((col, index) => [col.trim(), index]));
+
+  // 設定を解析
+  const settings = replaceSettings
+    .split('\n') // 改行で各設定に分割
+    .map(line => line.trim()) // 前後の空白を除去
+    .filter(line => line !== ''); // 空行を除去
+
+  settings.forEach(setting => {
+    const parts = setting.split(':');
+    // 設定は "対象列名:検索文字列:置換後文字列" の3つの部分で構成される
+    if (parts.length !== 3) {
+      console.warn(`不正な置換設定フォーマット（スキップ）: ${setting}。期待される形式: "列名:検索文字列:置換後文字列"`);
+      return; // この不正な設定をスキップ
+    }
+    // 各部分の前後の空白を除去
+    const [colName, searchString, replaceString] = parts.map(s => s.trim());
+
+    // 列名や検索文字列が空の場合は無効な設定としてスキップ（置換後文字列は空でもOK）
+    if (colName === '' || searchString === '') {
+        console.warn(`不正な置換設定: 列名と検索文字列は空にできません（スキップ）: ${setting}`);
+        return;
+    }
+
+    // 対象列のインデックスを取得
+    const colIndex = headerIndexes.get(colName);
+    if (colIndex === undefined) {
+      console.warn(`置換対象の列 "${colName}" が見つかりません（設定をスキップ）: ${setting}`);
+      return; // 列が見つからない場合はスキップ
+    }
+
+    // データ行を処理 (ヘッダー行を除くため i=1 から開始)
+    for (let i = 1; i < result.length; i++) {
+      // 行に対象列が存在するか確認
+      if (result[i].length > colIndex) {
+        let originalValue = result[i][colIndex];
+
+        // 値が null や undefined の場合、空文字列として扱う
+        if (originalValue === null || originalValue === undefined) {
+            originalValue = '';
+        } else {
+            // 置換前に値を文字列に変換
+            originalValue = originalValue.toString();
+        }
+
+        // String.prototype.replaceAll() を使用して、列内のすべての検索文字列を置換
+        // 注意: searchString に正規表現の特殊文字が含まれていても、ここでは文字列として扱われます。
+        try {
+            result[i][colIndex] = originalValue.replaceAll(searchString, replaceString);
+        } catch (e) {
+            // replaceAll でエラーが発生した場合 (例: searchString が空の場合など、ただし上のチェックで回避済みのはず)
+            console.error(`置換処理中にエラーが発生しました。設定: "${setting}", 行: ${i+1}, 元の値: "${originalValue}", エラー: ${e.message}`);
+            // エラーが発生しても処理を続行するか、ここでエラーを投げるか選択
+            // throw new Error(`置換処理エラー: ${e.message}`);
+        }
+      }
+    }
+  });
+
+  return result;
+}
