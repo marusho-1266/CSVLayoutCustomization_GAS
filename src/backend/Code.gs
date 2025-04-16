@@ -32,11 +32,24 @@ function include(filename) {
 function readCsvFromDrive(fileId) {
   try {
     const file = DriveApp.getFileById(fileId);
-    const content = file.getBlob().getDataAsString();
+    // ▼▼▼ Shift-JIS読み込み対応
+    let content;
+    try {
+        // まずUTF-8で試す
+        content = file.getBlob().getDataAsString('UTF-8');
+    } catch (e) {
+        // UTF-8で失敗したらShift-JISで試す
+        try {
+            content = file.getBlob().getDataAsString('Shift_JIS');
+        } catch (e2) {
+            console.error('UTF-8およびShift_JISでのCSV読み込みに失敗:', e, e2);
+            throw new Error('サポートされていない文字コードか、ファイルが破損しています。');
+        }
+    }
     return Utilities.parseCsv(content);
   } catch (error) {
     console.error('CSVファイルの読み込みに失敗しました:', error);
-    throw new Error('CSVファイルの読み込みに失敗しました');
+    throw new Error('CSVファイルの読み込みに失敗しました: ' + error.message);
   }
 }
 
@@ -47,27 +60,35 @@ function readCsvFromDrive(fileId) {
  * @param {string} format - 保存形式（'csv'または'sheets'）
  * @return {string} 保存したファイルのID
  */
-function saveResultToDrive(data, fileName, format) {
+function saveResultToDrive(data, fileName, format) { // encoding 引数を削除
   try {
-    const folder = DriveApp.getRootFolder();
+    const folder = DriveApp.getRootFolder(); // 保存先はルートフォルダ固定
     let file;
-    
+    let fileId;
+
     if (format === 'csv') {
       const csvContent = data.map(row => row.join(',')).join('\n');
-      const blob = Utilities.newBlob(csvContent, 'text/csv', fileName);
+      // ▼▼▼ 文字コードは UTF-8 に固定 ▼▼▼
+      const charset = 'UTF-8';
+      const blob = Utilities.newBlob(csvContent, 'text/csv; charset=' + charset, fileName);
+      // ▲▲▲ ここまで修正 ▲▲▲
       file = folder.createFile(blob);
+      fileId = file.getId();
     } else if (format === 'sheets') {
       const ss = SpreadsheetApp.create(fileName);
       const sheet = ss.getActiveSheet();
-      sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
-      file = DriveApp.getFileById(ss.getId());
-      folder.addFile(file);
-      DriveApp.getRootFolder().removeFile(file);
+      // データがない場合のヘッダー行のみの書き込みに対応
+      if (data.length > 0 && data[0].length > 0) {
+        sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
+      } else if (data.length > 0) { // ヘッダー行のみの場合
+        sheet.getRange(1, 1, 1, data[0].length).setValues([data[0]]);
+      }
+      fileId = ss.getId();
     } else {
       throw new Error('無効な保存形式です');
     }
-    
-    return file.getId();
+
+    return fileId;
   } catch (error) {
     console.error('ファイルの保存に失敗しました:', error);
     throw new Error('ファイルの保存に失敗しました: ' + error.message);
@@ -87,7 +108,7 @@ function saveProfile(name, settings) {
     userProperties.setProperty('profiles', JSON.stringify(profiles));
   } catch (error) {
     console.error('プロファイルの保存に失敗しました:', error);
-    throw new Error('プロファイルの保存に失敗しました');
+    throw new Error('プロファイルの保存に失敗しました: ' + error.message);
   }
 }
 
@@ -101,57 +122,65 @@ function getProfiles() {
     return JSON.parse(userProperties.getProperty('profiles') || '{}');
   } catch (error) {
     console.error('プロファイルの取得に失敗しました:', error);
-    throw new Error('プロファイルの取得に失敗しました');
+    throw new Error('プロファイルの取得に失敗しました: ' + error.message);
   }
 }
 
 /**
- * ファイル選択用のHTMLを生成する
- * @return {string} HTML文字列
+ * 指定されたプロファイルを取得する
+ * @param {string} name - プロファイル名
+ * @return {Object} プロファイル設定
  */
-function getFilePickerHtml() {
-  return `
-    <div style="padding: 20px;">
-      <h3>CSVファイルを選択</h3>
-      <input type="file" id="fileInput" accept=".csv" style="margin: 10px 0;">
-      <div id="status" style="margin: 10px 0;"></div>
-    </div>
-    <script>
-      document.getElementById('fileInput').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = function(e) {
-            const content = e.target.result;
-            google.script.run
-              .withSuccessHandler(function(data) {
-                document.getElementById('status').innerHTML = 'ファイルを読み込みました';
-                setTimeout(function() {
-                  google.script.host.close();
-                }, 1000);
-              })
-              .withFailureHandler(function(error) {
-                document.getElementById('status').innerHTML = 'エラー: ' + error;
-              })
-              .processFileContent(content);
-          };
-          reader.readAsText(file);
-        }
-      });
-    </script>
-  `;
+function getProfile(name) {
+  try {
+    const profiles = getProfiles(); // 既存の getProfiles を利用
+    if (profiles && profiles[name]) {
+      return profiles[name];
+    } else {
+      // プロファイルが見つからない場合は空の設定を返すか、エラーを投げる
+      // ここでは空の設定を返すようにしてみる（フロントエンドでハンドリングしやすいように）
+      // throw new Error('指定されたプロファイルが見つかりません: ' + name);
+      return {}; // 空のオブジェクトを返す
+    }
+  } catch (error) {
+    console.error('プロファイルの取得に失敗しました:', error);
+    throw new Error('プロファイルの取得に失敗しました: ' + error.message);
+  }
 }
 
 /**
- * ファイルの内容を処理する
- * @param {string} content - CSVファイルの内容
+ * ファイルの内容を処理する (フロントエンドから呼び出される)
+ * @param {string} content - CSVファイルの内容 (フロントエンドでデコード済み)
  * @return {Array} CSVデータの二次元配列
  */
 function processFileContent(content) {
   try {
+    // Utilities.parseCsv はUTF-8として解釈するため、
+    // フロントエンドで正しくデコードされた文字列を渡すことが重要
     return Utilities.parseCsv(content);
   } catch (error) {
-    console.error('CSVファイルの処理に失敗しました:', error);
-    throw new Error('CSVファイルの処理に失敗しました');
+    console.error('CSVファイルの解析に失敗しました:', error);
+    throw new Error('CSVファイルの解析に失敗しました: ' + error.message);
   }
-} 
+}
+
+/**
+ * プロファイルを削除する
+ * @param {string} name - 削除するプロファイル名
+ */
+function deleteProfile(name) {
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const profiles = JSON.parse(userProperties.getProperty('profiles') || '{}');
+    if (profiles[name]) {
+      delete profiles[name];
+      userProperties.setProperty('profiles', JSON.stringify(profiles));
+    } else {
+      console.warn('削除対象のプロファイルが見つかりません:', name);
+      // 削除対象がなくてもエラーとはしない
+    }
+  } catch (error) {
+    console.error('プロファイルの削除に失敗しました:', error);
+    throw new Error('プロファイルの削除に失敗しました: ' + error.message);
+  }
+}

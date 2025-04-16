@@ -173,7 +173,10 @@ function removeCharacters(data, removeSettings) {
     for (let i = 1; i < result.length; i++) {
       let value = result[i][colIndex].toString();
       characters.forEach(char => {
-        value = value.replace(new RegExp(char, 'g'), '');
+        // 正規表現メタ文字をエスケープするヘルパー関数を使うか、
+        // 単純な置換を繰り返す
+        const escapedChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // メタ文字エスケープ例
+        value = value.replace(new RegExp(escapedChar, 'g'), '');
       });
       result[i][colIndex] = value;
     }

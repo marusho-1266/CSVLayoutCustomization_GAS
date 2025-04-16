@@ -15,7 +15,7 @@
       <h1>CSVレイアウト変更ツール</h1>
       <p>Google Drive上のCSVファイルを読み込み、項目の並べ替え、結合、文字の除去・追加などの操作を行うツールです。</p>
     </div>
-    
+
     <!-- プロファイル管理セクション -->
     <div class="profile-section">
       <h2>プロファイル管理</h2>
@@ -28,7 +28,7 @@
         <button id="delete-profile" class="action">削除</button>
       </div>
     </div>
-    
+
     <!-- ファイル操作セクション -->
     <div class="file-section">
       <h2>ファイル操作</h2>
@@ -36,15 +36,16 @@
         <button id="select-file" class="action">CSVファイルを選択</button>
         <div id="selected-file" class="file-info"></div>
         <div class="encoding-controls">
-          <label>出力文字コード：</label>
-          <select id="encoding" class="form-control">
-            <option value="utf-8">UTF-8</option>
+          <label for="input-encoding">入力文字コード：</label>
+          <select id="input-encoding" class="form-control">
+            <option value="utf-8" selected>UTF-8</option>
             <option value="shift-jis">Shift-JIS</option>
           </select>
         </div>
+
       </div>
     </div>
-    
+
     <!-- 設定セクション -->
     <div class="settings-section">
       <h2>変換設定</h2>
@@ -56,26 +57,26 @@
         <button class="tab-button" data-tab="add">文字追加</button>
         <button class="tab-button" data-tab="prefecture">都道府県</button>
       </div>
-      
+
       <div class="tab-content">
         <!-- 並べ替えタブ -->
         <div id="reorder" class="tab-pane active">
           <textarea id="reorder-settings" class="form-control" placeholder="項目A,,項目B,項目C..."></textarea>
           <p class="help-text">カンマ区切りで項目名を指定してください。空の項目は空の列として挿入されます。</p>
         </div>
-        
+
         <!-- 結合タブ -->
         <div id="merge" class="tab-pane">
           <textarea id="merge-settings" class="form-control" placeholder="新項目名:項目1,項目2 区切り文字"></textarea>
           <p class="help-text">1行に1つの結合設定を記述してください。形式：新項目名:結合元項目1,結合元項目2... 区切り文字</p>
         </div>
-        
+
         <!-- 文字列抽出タブ -->
         <div id="extract" class="tab-pane">
           <textarea id="extract-settings" class="form-control" placeholder="新項目名:抽出元項目:開始位置:文字数"></textarea>
           <p class="help-text">1行に1つの抽出設定を記述してください。形式：新項目名:抽出元項目:開始位置:文字数</p>
         </div>
-        
+
         <!-- 文字除去タブ -->
         <div id="remove" class="tab-pane">
           <textarea id="remove-settings" class="form-control" placeholder="項目名:除去する文字1,除去する文字2..."></textarea>
@@ -88,13 +89,13 @@
             <input type="text" id="remove-prefecture-columns" class="form-control" placeholder="住所1,所在地">
           </div>
         </div>
-        
+
         <!-- 文字追加タブ -->
         <div id="add" class="tab-pane">
           <textarea id="add-settings" class="form-control" placeholder="項目名:位置:追加文字"></textarea>
           <p class="help-text">1行に1つの追加設定を記述してください。形式：項目名:位置:追加文字（位置は「前」または「後」）</p>
         </div>
-        
+
         <!-- 都道府県タブ -->
         <div id="prefecture" class="tab-pane">
           <div class="prefecture-code">
@@ -108,10 +109,13 @@
         </div>
       </div>
     </div>
-    
+
     <!-- プレビュー・操作セクション -->
     <div class="preview-section">
       <h2>プレビュー</h2>
+      <!-- ▼▼▼ メッセージ表示エリアを追加 ▼▼▼ -->
+      <div id="message-area" style="margin-bottom: 10px; padding: 10px; border-radius: 4px; min-height: 1.5em; color: green;"></div>
+      <!-- ▲▲▲ ここまで追加 ▲▲▲ -->
       <div id="preview" class="preview-table"></div>
       <div class="preview-controls">
         <button id="process" class="action">変換実行</button>
@@ -119,7 +123,7 @@
       </div>
     </div>
   </div>
-  
+
   <?!= include('JavaScript'); ?>
 </body>
-</html> 
+</html>

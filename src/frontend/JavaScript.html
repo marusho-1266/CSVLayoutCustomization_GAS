@@ -3,26 +3,26 @@
   let currentFile = null;
   let currentData = null;
   let processedData = null;
-  
+
   // ページ読み込み時の初期化
   document.addEventListener('DOMContentLoaded', function() {
     // プロファイルの読み込み
     loadProfiles();
-    
+
     // タブ切り替えの設定
     setupTabs();
-    
+
     // イベントリスナーの設定
     setupEventListeners();
   });
-  
+
   // プロファイルの読み込み
   function loadProfiles() {
     google.script.run
       .withSuccessHandler(function(profiles) {
         const select = document.getElementById('profile-select');
         select.innerHTML = '<option value="">新規プロファイル</option>';
-        
+
         for (const name in profiles) {
           const option = document.createElement('option');
           option.value = name;
@@ -33,7 +33,7 @@
       .withFailureHandler(showError)
       .getProfiles();
   }
-  
+
   // タブ切り替えの設定
   function setupTabs() {
     const tabs = document.querySelectorAll('.tab-button');
@@ -42,7 +42,7 @@
         // アクティブなタブの切り替え
         document.querySelector('.tab-button.active').classList.remove('active');
         this.classList.add('active');
-        
+
         // タブコンテンツの切り替え
         const tabId = this.dataset.tab;
         document.querySelector('.tab-pane.active').classList.remove('active');
@@ -50,7 +50,7 @@
       });
     });
   }
-  
+
   // イベントリスナーの設定
   function setupEventListeners() {
     // プロファイル選択
@@ -59,25 +59,44 @@
       if (name) {
         document.getElementById('profile-name').value = name;
         loadProfile(name);
+      } else {
+        // 新規プロファイル選択時はフォームをクリア（任意）
+        clearSettingsForm();
+        document.getElementById('profile-name').value = '';
       }
     });
-    
+
     // プロファイル保存
     document.getElementById('save-profile').addEventListener('click', saveProfile);
-    
+
     // プロファイル削除
     document.getElementById('delete-profile').addEventListener('click', deleteProfile);
-    
+
     // ファイル選択
     document.getElementById('select-file').addEventListener('click', selectFile);
-    
+
     // 変換実行
     document.getElementById('process').addEventListener('click', processData);
-    
+
     // 保存
     document.getElementById('save').addEventListener('click', saveFile);
   }
-  
+
+  // 設定フォームをクリアする関数（任意）
+  function clearSettingsForm() {
+      document.getElementById('reorder-settings').value = '';
+      document.getElementById('merge-settings').value = '';
+      document.getElementById('extract-settings').value = '';
+      document.getElementById('remove-settings').value = '';
+      document.getElementById('add-settings').value = '';
+      document.getElementById('remove-prefecture-enabled').checked = false;
+      document.getElementById('remove-prefecture-columns').value = '';
+      document.getElementById('get-pref-code-enabled').checked = false;
+      document.getElementById('pref-code-source').value = '';
+      document.getElementById('pref-code-new').value = '都道府県コード';
+  }
+
+
   // プロファイルの読み込み
   function loadProfile(name) {
     google.script.run
@@ -88,23 +107,30 @@
         document.getElementById('extract-settings').value = profile.extract || '';
         document.getElementById('remove-settings').value = profile.remove || '';
         document.getElementById('add-settings').value = profile.add || '';
-        
+
         // 都道府県設定
         if (profile.remove_prefecture) {
-          document.getElementById('remove-prefecture-enabled').checked = profile.remove_prefecture.enabled;
+          document.getElementById('remove-prefecture-enabled').checked = profile.remove_prefecture.enabled || false;
           document.getElementById('remove-prefecture-columns').value = profile.remove_prefecture.column || '';
+        } else {
+          document.getElementById('remove-prefecture-enabled').checked = false;
+          document.getElementById('remove-prefecture-columns').value = '';
         }
-        
+
         if (profile.get_pref_code) {
-          document.getElementById('get-pref-code-enabled').checked = profile.get_pref_code.enabled;
+          document.getElementById('get-pref-code-enabled').checked = profile.get_pref_code.enabled || false;
           document.getElementById('pref-code-source').value = profile.get_pref_code.source_column || '';
           document.getElementById('pref-code-new').value = profile.get_pref_code.new_column || '都道府県コード';
+        } else {
+           document.getElementById('get-pref-code-enabled').checked = false;
+           document.getElementById('pref-code-source').value = '';
+           document.getElementById('pref-code-new').value = '都道府県コード';
         }
       })
       .withFailureHandler(showError)
       .getProfile(name);
   }
-  
+
   // プロファイルの保存
   function saveProfile() {
     const name = document.getElementById('profile-name').value;
@@ -112,7 +138,7 @@
       showError('プロファイル名を入力してください');
       return;
     }
-    
+
     const settings = {
       reorder: document.getElementById('reorder-settings').value,
       merge: document.getElementById('merge-settings').value,
@@ -129,16 +155,17 @@
         new_column: document.getElementById('pref-code-new').value
       }
     };
-    
+
     google.script.run
       .withSuccessHandler(function() {
-        loadProfiles();
+        loadProfiles(); // リストを更新
+        document.getElementById('profile-select').value = name; // 保存したプロファイルを選択状態にする
         showMessage('プロファイルを保存しました');
       })
       .withFailureHandler(showError)
       .saveProfile(name, settings);
   }
-  
+
   // プロファイルの削除
   function deleteProfile() {
     const name = document.getElementById('profile-select').value;
@@ -146,83 +173,96 @@
       showError('削除するプロファイルを選択してください');
       return;
     }
-    
+
     if (!confirm('プロファイル「' + name + '」を削除してもよろしいですか？')) {
       return;
     }
-    
+
     google.script.run
       .withSuccessHandler(function() {
-        loadProfiles();
-        document.getElementById('profile-name').value = '';
+        loadProfiles(); // リストを更新
+        document.getElementById('profile-name').value = ''; // プロファイル名入力欄をクリア
+        clearSettingsForm(); // 設定フォームをクリア
         showMessage('プロファイルを削除しました');
       })
       .withFailureHandler(showError)
       .deleteProfile(name);
   }
-  
+
   // ファイルの選択
   function selectFile() {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = '.csv';
     fileInput.style.display = 'none';
-    
+
     fileInput.addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (file) {
+        const inputEncodingSelect = document.getElementById('input-encoding');
+        const inputEncoding = inputEncodingSelect.value; // 'utf-8' または 'shift-jis'
+        const encodingForReader = inputEncoding === 'shift-jis' ? 'Shift_JIS' : 'UTF-8'; // FileReader 用のエンコーディング名
         const reader = new FileReader();
         reader.onload = function(e) {
           const content = e.target.result;
           google.script.run
             .withSuccessHandler(function(data) {
               currentData = data;
+              processedData = null; // 新しいファイルを読み込んだら変換済みデータはリセット
               showPreview(data);
               document.getElementById('selected-file').textContent = file.name;
+              showMessage('ファイルを読み込みました。変換設定を行い「変換実行」を押してください。');
             })
             .withFailureHandler(showError)
             .processFileContent(content);
         };
-        reader.readAsText(file);
+        reader.onerror = function(e) {
+           // エラーハンドリングを追加
+           showError('ファイルの読み込みに失敗しました。選択した文字コードが正しいか確認してください。');
+        };
+        reader.readAsText(file, encodingForReader);
       }
     });
-    
+
     document.body.appendChild(fileInput);
     fileInput.click();
     document.body.removeChild(fileInput);
   }
-  
+
   // ファイルの保存
   function saveFile() {
     if (!processedData) {
       showError('変換を実行してください');
       return;
     }
-    
-    const encoding = document.getElementById('encoding').value;
-    // encodingの値に基づいて保存形式を決定
-    const format = encoding === 'utf-8' ? 'csv' : 'sheets';
-    const fileName = 'converted_data.' + (format === 'sheets' ? 'xlsx' : 'csv');
-    
+
+    const format = 'csv';
+    const fileName = 'converted_data.csv'; // ファイル名を固定または入力ファイル名から生成
+
     google.script.run
-      .withSuccessHandler(function(fileId) {
-        showMessage('ファイルを保存しました');
-        // 保存したファイルのリンクを表示
-        const fileUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
-        document.getElementById('selected-file').innerHTML = 
-          '<a href="' + fileUrl + '" target="_blank">' + fileName + '</a>';
-      })
+      .withSuccessHandler(showSaveSuccess) // 成功ハンドラを共通化
       .withFailureHandler(showError)
+      // saveResultToDrive から encoding 引数を削除
       .saveResultToDrive(processedData, fileName, format);
   }
-  
+
+  // 成功時の処理
+  function showSaveSuccess(fileId) {
+    const fileName = 'converted_data.csv'; // 固定ファイル名
+    showMessage('ファイル ( ' + fileName + ' ) をGoogle Driveに保存しました');
+    const fileUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
+    // 選択ファイル表示エリアにリンクを表示
+    document.getElementById('selected-file').innerHTML =
+      '保存完了: <a href="' + fileUrl + '" target="_blank">' + fileName + '</a>';
+  }
+
   // データの変換処理
   function processData() {
     if (!currentData) {
       showError('CSVファイルを選択してください');
       return;
     }
-    
+
     const settings = {
       reorder: document.getElementById('reorder-settings').value,
       merge: document.getElementById('merge-settings').value,
@@ -239,35 +279,53 @@
         new_column: document.getElementById('pref-code-new').value
       }
     };
-    
+
+    showMessage('変換処理を実行中...'); // 処理中メッセージ
+
     google.script.run
       .withSuccessHandler(function(data) {
         processedData = data;
         showPreview(data);
+        showMessage('変換が完了しました。プレビューを確認し「保存」を押してください。'); // 完了メッセージ
       })
       .withFailureHandler(showError)
       .processData(currentData, settings);
   }
-  
+
   // プレビューの表示
   function showPreview(data) {
     const preview = document.getElementById('preview');
+    preview.innerHTML = ''; // 既存のプレビューをクリア
+
+    if (!data || data.length === 0) {
+        preview.textContent = 'データがありません。';
+        return;
+    }
+
     const table = document.createElement('table');
-    
+
     // ヘッダー行
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    data[0].forEach(header => {
-      const th = document.createElement('th');
-      th.textContent = header;
-      headerRow.appendChild(th);
-    });
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-    
+    if (data[0] && data[0].length > 0) {
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        data[0].forEach(header => {
+          const th = document.createElement('th');
+          th.textContent = header;
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+    }
+
+
     // データ行
     const tbody = document.createElement('tbody');
-    for (let i = 1; i < Math.min(data.length, 11); i++) {
+    const maxPreviewRows = 10; // ヘッダーを除く最大表示行数
+    const dataRowCount = data.length -1; // データ行の総数
+    const displayRowCount = Math.min(dataRowCount, maxPreviewRows);
+
+    for (let i = 1; i <= displayRowCount; i++) { // 1から開始
+      if (!data[i]) continue; // データ行が存在しない場合はスキップ
       const row = document.createElement('tr');
       data[i].forEach(cell => {
         const td = document.createElement('td');
@@ -277,26 +335,45 @@
       tbody.appendChild(row);
     }
     table.appendChild(tbody);
-    
+
     // プレビューの更新
-    preview.innerHTML = '';
     preview.appendChild(table);
-    
-    // データが11行以上ある場合はその旨を表示
-    if (data.length > 11) {
+
+    // データが最大表示行数を超える場合はその旨を表示
+    if (dataRowCount > maxPreviewRows) {
       const message = document.createElement('p');
-      message.textContent = '... 他 ' + (data.length - 11) + ' 行';
+      message.textContent = '... 他 ' + (dataRowCount - maxPreviewRows) + ' 行（プレビューは最大10行まで表示）';
+      message.style.marginTop = '10px';
       preview.appendChild(message);
     }
   }
-  
-  // エラーメッセージの表示
-  function showError(message) {
-    alert('エラー: ' + message);
-  }
-  
+
   // メッセージの表示
-  function showMessage(message) {
-    alert(message);
+  function showMessage(message, isError = false) {
+    const messageArea = document.getElementById('message-area');
+    if (messageArea) {
+      messageArea.textContent = message;
+      messageArea.style.color = isError ? 'red' : 'green';
+      // エラーでないメッセージは5秒後に消す
+      if (!isError) {
+          setTimeout(() => {
+              // 現在表示されているメッセージが同じものなら消す
+              if (messageArea.textContent === message) {
+                  messageArea.textContent = '';
+              }
+          }, 5000);
+      }
+    } else {
+      // フォールバックとして alert を使う
+      alert((isError ? 'エラー: ' : '') + message);
+    }
   }
-</script> 
+
+  // エラーメッセージの表示
+  function showError(error) {
+      // error オブジェクトからメッセージを抽出
+      const message = error && error.message ? error.message : String(error);
+      showMessage(message, true);
+      console.error('エラーが発生しました:', error); // コンソールにも詳細を出力
+  }
+</script>
