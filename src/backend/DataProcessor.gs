@@ -130,84 +130,164 @@ function mergeColumns(data, mergeSettings) {
 
   // 設定をパースして、新しい列の情報と処理内容を保持
   const parsedSettings = mergeSettings
-    .split('\n')
-    .map(line => line.trim()) // 前後の空白を除去
-    .filter(line => line !== '') // 空行を除去
-    .map(setting => {
-      const parts = setting.split(':');
-      if (parts.length !== 2 || parts[0].trim() === '' || parts[1].trim() === '') {
-        console.warn(`Invalid merge setting format (skipping): ${setting}`);
-        return null; // 不正なフォーマットはスキップ
+    .split('\n') // 1. 行に分割
+    .filter(line => line.trim() !== '') // 2. 空白行を除去 (trim() でチェック)
+    .map(rawLine => { // トリムされていない可能性のある行 (rawLine) を処理
+      const parts = rawLine.split(':');
+      // ':' が1つでない場合は不正
+      if (parts.length !== 2) {
+        console.warn(`不正な結合設定フォーマット（':'が1つでない）（スキップ）: ${rawLine}`);
+        return null;
       }
+
+      // 新列名はここでトリム
       const newColName = parts[0].trim();
-      const sourcesPart = parts[1].trim();
-
-      // 区切り文字を正しく抽出 (最初のスペース以降を区切り文字とする)
-      const firstSpaceIndex = sourcesPart.indexOf(' ');
-      let sourceColNamesStr, delimiter;
-      if (firstSpaceIndex === -1) {
-        // スペースがない -> 区切り文字なし
-        sourceColNamesStr = sourcesPart;
-        delimiter = '';
-      } else {
-        sourceColNamesStr = sourcesPart.substring(0, firstSpaceIndex);
-        delimiter = sourcesPart.substring(firstSpaceIndex + 1); // スペース以降全て
+      if (newColName === '') {
+          console.warn(`不正な結合設定フォーマット（新列名が空）（スキップ）: ${rawLine}`);
+          return null;
       }
 
-      const sourceCols = sourceColNamesStr.split(',').map(s => s.trim()).filter(s => s !== '');
+      // 結合元列と区切り文字部分
+      const sourcesAndDelimiterPart = parts[1];
 
+      let sourceCols = [];
+      let delimiter = '';
+      let useFallback = false;
+
+      const lastCommaIndex = sourcesAndDelimiterPart.lastIndexOf(',');
+
+      if (lastCommaIndex === -1) {
+        // カンマがない場合 -> 全体を単一列名として扱う（フォールバックと同じ）
+        useFallback = true;
+      } else {
+        // カンマがある場合
+        const sourceStr = sourcesAndDelimiterPart.substring(0, lastCommaIndex);
+        const potentialDelimiter = sourcesAndDelimiterPart.substring(lastCommaIndex + 1);
+
+        // カンマ前の部分を解析
+        const potentialCols = sourceStr.split(',')
+                                .map(s => s.trim())
+                                .filter(s => s !== '');
+
+        // カンマ前の部分が有効な列名リストかチェック
+        const arePotentialColsValid = potentialCols.length > 0 && potentialCols.every(col => originalHeaderIndexes.has(col));
+
+        if (arePotentialColsValid) {
+          // カンマ前の部分が有効な場合、区切り文字候補が列名でないかチェック
+          const trimmedDelimiter = potentialDelimiter.trim();
+          // 区切り文字候補が空文字列でない、かつヘッダーに存在するか
+          if (trimmedDelimiter !== '' && originalHeaderIndexes.has(trimmedDelimiter)) {
+            // 区切り文字候補が有効な列名だった -> フォールバック（全体を列名として解釈）
+            useFallback = true;
+          } else {
+            // 区切り文字候補が列名ではない -> この解析結果を採用
+            sourceCols = potentialCols;
+            delimiter = potentialDelimiter; // トリムしない元の区切り文字を採用
+            useFallback = false;
+          }
+        } else {
+          // カンマ前の部分が無効 -> フォールバック（全体を列名として解釈）
+          useFallback = true;
+        }
+      }
+
+      // フォールバック処理（全体を列名として解釈）
+      if (useFallback) {
+        const allPotentialCols = sourcesAndDelimiterPart.split(',')
+                                  .map(s => s.trim())
+                                  .filter(s => s !== '');
+        if (allPotentialCols.length > 0 && allPotentialCols.every(col => originalHeaderIndexes.has(col))) {
+          sourceCols = allPotentialCols;
+          delimiter = ''; // 区切り文字なし
+        } else {
+          // フォールバックでも有効な列名リストが見つからない場合はエラー
+          console.warn(`不正な結合設定: 有効な結合元列名が見つかりません（スキップ）: ${rawLine}`);
+          return null;
+        }
+      }
+
+      // 結合元列名が一つもない場合は不正 (上のロジックでチェック済みだが念のため)
       if (sourceCols.length === 0) {
-          console.warn(`Invalid merge setting format (no source columns): ${setting}`);
-          return null; // ソース列がない場合はスキップ
+          console.warn(`不正な結合設定フォーマット（結合元列なし）: ${rawLine}`);
+          return null;
+      }
+
+      // ':' の右側が全体として空だった場合も不正とする (トリムしてチェック)
+      if (sourcesAndDelimiterPart.trim() === '') {
+          console.warn(`不正な結合設定フォーマット（結合元/区切り文字が空）（スキップ）: ${rawLine}`);
+          return null;
       }
 
       return { newColName, sourceCols, delimiter };
     })
-    .filter(setting => setting !== null); // 不正な設定を除外
+    .filter(setting => setting !== null);
 
   // 1. 新しい列をヘッダーに追加
   const newColsToAdd = [];
   parsedSettings.forEach(setting => {
-    // まだヘッダーに追加されていない新しい列名のみを収集
-    // かつ、元のヘッダーにも存在しない列名のみを対象とする（既存列の上書きはしない前提）
-    if (!resultHeader.includes(setting.newColName) && !originalHeaderIndexes.has(setting.newColName)) {
+    // 新しい列名が既存ヘッダーにも元のヘッダーにもない場合のみ追加
+    if (!resultHeader.some(h => h.trim() === setting.newColName) && !originalHeaderIndexes.has(setting.newColName)) {
       newColsToAdd.push(setting.newColName);
+    } else if (originalHeaderIndexes.has(setting.newColName)) {
+      console.warn(`結合設定: 新しい列名 "${setting.newColName}" は元の列名と重複しています。元の列が上書きされます。`);
+    } else {
+       // resultHeader に既に存在する (他の設定で先に追加された) 場合は何もしない
     }
-    // もし既存列を上書きしたい場合は、ここのロジックを変更する必要がある
   });
-
-  // 収集した新しい列名を一括でヘッダーに追加
-  resultHeader.push(...newColsToAdd);
-
-  // 追加した列の数だけ、各データ行の末尾に空文字を追加
-  if (newColsToAdd.length > 0) {
+  // 重複を排除して追加
+  const uniqueNewCols = [...new Set(newColsToAdd)];
+  resultHeader.push(...uniqueNewCols);
+  if (uniqueNewCols.length > 0) {
     resultData.forEach(row => {
-      for (let k = 0; k < newColsToAdd.length; k++) {
-        row.push(''); // 新しい列のためのプレースホルダー
+      for (let k = 0; k < uniqueNewCols.length; k++) {
+        row.push(''); // 新しい列に対応する空のセルを追加
       }
     });
   }
 
-  // 2. 新しいヘッダーでのインデックスを作成
+
+  // 2. 新しいヘッダーでのインデックスを作成 (再作成)
   const resultHeaderIndexes = new Map();
   resultHeader.forEach((col, index) => {
-    resultHeaderIndexes.set(col, index); // 新しいヘッダーはtrim済みのはず
+    resultHeaderIndexes.set(col.trim(), index); // トリムして登録
   });
 
   // 3. 各データ行に対して結合処理を実行
   parsedSettings.forEach(setting => {
     const targetColIndex = resultHeaderIndexes.get(setting.newColName);
-    if (targetColIndex === undefined) return; // ヘッダーに追加されていない場合はスキップ(通常発生しないはず)
+    // 対象列が結果ヘッダーに見つからない場合 (通常は起こらないはず)
+    if (targetColIndex === undefined) {
+        console.error(`内部エラー: 結合対象の列 "${setting.newColName}" が結果ヘッダーに見つかりません。`);
+        return;
+    }
 
-    resultData.forEach(row => {
-      const valuesToJoin = setting.sourceCols.map(sourceColName => {
-        const originalIndex = originalHeaderIndexes.get(sourceColName); // 元のインデックスを使用
-        if (originalIndex !== undefined && row.length > originalIndex) {
-          return row[originalIndex]; // 元のデータから取得
+    // 元データのインデックスを再確認 (大文字小文字を区別しない場合などはここで調整)
+    const sourceIndexes = setting.sourceCols.map(sourceColName => {
+        const index = originalHeaderIndexes.get(sourceColName); // sourceColName は既にトリム済みのはず
+        if (index === undefined) {
+            console.warn(`結合元列 "${sourceColName}" が元のヘッダーに見つかりません。空文字として扱われます。`);
         }
-        return ''; // 元の列が見つからない場合は空文字
+        return index;
+    });
+
+
+    resultData.forEach((row, rowIndex) => {
+      // originalData から値を取得する方がより安全
+      const originalRow = originalData[rowIndex];
+      if (!originalRow) {
+          console.error(`内部エラー: 元データに対応する行が見つかりません。行インデックス: ${rowIndex}`);
+          return; // or row[targetColIndex] = '';
+      }
+
+      const valuesToJoin = sourceIndexes.map(originalIndex => {
+        if (originalIndex !== undefined && originalRow.length > originalIndex) {
+          // 値が null や undefined の場合も考慮して文字列に変換
+          const val = originalRow[originalIndex];
+          return (val === null || val === undefined) ? '' : String(val);
+        }
+        return ''; // 元の列が見つからない、または元の行にデータがない場合は空文字
       });
-      // 対応する新しい列の位置に結合結果をセット
+      // 結合した値を結果の行の対応する列インデックスに設定
       row[targetColIndex] = valuesToJoin.join(setting.delimiter);
     });
   });

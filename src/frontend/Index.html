@@ -68,8 +68,8 @@
 
         <!-- 結合タブ -->
         <div id="merge" class="tab-pane">
-          <textarea id="merge-settings" class="form-control" placeholder="新項目名:項目1,項目2 区切り文字"></textarea>
-          <p class="help-text">1行に1つの結合設定を記述してください。形式：新項目名:結合元項目1,結合元項目2... 区切り文字</p>
+          <textarea id="merge-settings" class="form-control" placeholder="氏名フル:姓,名,&#10;テスト:年齢,性別,!"></textarea>
+          <p class="help-text">1行に1つの結合設定を記述してください。形式：新項目名:結合元項目1,結合元項目2,区切り文字。最後のカンマ以降が区切り文字として扱われます。区切り文字が不要な場合は最後のカンマを省略します（例: 新項目名:項目A,項目B）。</p>
         </div>
 
         <!-- 文字列抽出タブ -->
