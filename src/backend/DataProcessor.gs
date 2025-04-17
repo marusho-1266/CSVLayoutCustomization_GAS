@@ -60,8 +60,15 @@ function processData(data, settings) {
  * @return {Array} 並べ替え後のデータ
  */
 function reorderColumns(data, order) {
-  // カンマで区切り、前後の空白を除去し、空の要素を除外して新しいヘッダーを作成
-  const newHeader = order.split(',').map(s => s.trim()).filter(s => s !== '');
+  // カンマで区切りして新しいヘッダーを作成（空の要素を維持する）
+  const orderParts = order.split(',').map(s => s.trim());
+  
+  // 連続したカンマ（,,）による空の要素を維持して新しいヘッダーを作成
+  const newHeader = [];
+  for (let i = 0; i < orderParts.length; i++) {
+    newHeader.push(orderParts[i]);
+  }
+  
   const originalHeader = data[0];
   const result = [newHeader]; 
   
@@ -78,6 +85,12 @@ function reorderColumns(data, order) {
 
     // 新しいヘッダーの順序でループ
     newHeader.forEach(colName => {
+      // 空の要素の場合は空文字を挿入（連続したカンマの場合）
+      if (colName === '') {
+        newRow.push('');
+        return;
+      }
+      
       // newHeader に含まれる列名に対応する元の列インデックスを探す
       const originalIndex = headerIndexes[colName];
       if (originalIndex !== undefined && originalRow.length > originalIndex) {
