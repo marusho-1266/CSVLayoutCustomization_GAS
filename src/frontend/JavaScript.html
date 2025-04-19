@@ -4,6 +4,7 @@
   let currentData = null;
   let processedData = null;
   let hasHeader = true; // ヘッダー行の有無を管理
+  let originalFileName = ''; // 元のファイル名を保存する変数を追加
 
   // ページ読み込み時の初期化
   document.addEventListener('DOMContentLoaded', function() {
@@ -228,6 +229,9 @@
           hasHeader = document.getElementById('has-header').checked;
           console.log("ファイル読み込み: ヘッダー設定 =", hasHeader ? "あり" : "なし");
           
+          // ファイル名を保存
+          originalFileName = file.name;
+          
           google.script.run
             .withSuccessHandler(function(data) {
               currentData = data;
@@ -270,7 +274,16 @@
     }
 
     const format = 'csv';
-    const fileName = 'converted_data.csv'; // ファイル名を固定または入力ファイル名から生成
+    // 元のファイル名から拡張子を除去して「_converted.csv」を追加
+    let fileName;
+    if (originalFileName) {
+      // 拡張子を除去
+      const fileNameWithoutExt = originalFileName.replace(/\.[^/.]+$/, '');
+      fileName = fileNameWithoutExt + '_converted.csv';
+    } else {
+      fileName = 'converted_data.csv'; // ファイル名が保存されていない場合のデフォルト
+    }
+    
     const removeHeader = document.getElementById('remove-header').checked;
 
     google.script.run
@@ -281,7 +294,16 @@
 
   // 成功時の処理
   function showSaveSuccess(fileId) {
-    const fileName = 'converted_data.csv'; // 固定ファイル名
+    // 元のファイル名から拡張子を除去して「_converted.csv」を追加
+    let fileName;
+    if (originalFileName) {
+      // 拡張子を除去
+      const fileNameWithoutExt = originalFileName.replace(/\.[^/.]+$/, '');
+      fileName = fileNameWithoutExt + '_converted.csv';
+    } else {
+      fileName = 'converted_data.csv'; // ファイル名が保存されていない場合のデフォルト
+    }
+    
     const removeHeader = document.getElementById('remove-header').checked;
     const originalHasNoHeader = (processedData && processedData.originalHasNoHeader);
     
