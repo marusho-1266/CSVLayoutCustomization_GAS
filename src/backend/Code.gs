@@ -67,33 +67,73 @@ function saveResultToDrive(data, fileName, format, removeHeader) {
     let file;
     let fileId;
 
+    // 元データにヘッダーがなく、自動生成したヘッダーの場合の処理
+    const originalHasNoHeader = data.originalHasNoHeader === true;
+    
+    // デバッグログ
+    console.log('保存処理開始:');
+    console.log('- ファイル名:', fileName);
+    console.log('- フォーマット:', format);
+    console.log('- ヘッダー除去設定:', removeHeader);
+    console.log('- 元データにヘッダーなし:', originalHasNoHeader);
+    console.log('- データ行数:', data.length);
+    if (data.length > 0) {
+      console.log('- 最初の行:', JSON.stringify(data[0]));
+    }
+    
     if (format === 'csv') {
-      // ヘッダー除去の設定に応じてデータを処理
-      const dataToSave = removeHeader ? data.slice(1) : data;
-      const csvContent = dataToSave.map(row => row.join(',')).join('\n');
-      // ▼▼▼ 文字コードは UTF-8 に固定 ▼▼▼
+      // ヘッダー除去の設定またはオリジナルにヘッダーがなかった場合にヘッダーを除去
+      const dataToSave = (removeHeader || originalHasNoHeader) ? data.slice(1) : data;
+      
+      console.log('保存データ処理:');
+      console.log('- ヘッダー除去条件:', removeHeader || originalHasNoHeader);
+      console.log('- 保存データ行数:', dataToSave.length);
+      if (dataToSave.length > 0) {
+        console.log('- 保存データ最初の行:', JSON.stringify(dataToSave[0]));
+      }
+      
+      // CSV形式に変換: 各行をカンマで結合し、行を改行で結合
+      const csvContent = dataToSave.map(row => {
+        // 各セルをカンマで区切る前に、カンマや引用符を含むセルを適切に処理
+        return row.map(cell => {
+          const cellStr = String(cell || ''); // nullやundefinedを''に変換
+          // カンマ、改行、ダブルクォートを含む場合は引用符で囲む
+          if (/[,\n\r"]/.test(cellStr)) {
+            // ダブルクォートはダブルクォートでエスケープ
+            return '"' + cellStr.replace(/"/g, '""') + '"';
+          }
+          return cellStr;
+        }).join(',');
+      }).join('\n');
+      
+      // 文字コードは UTF-8 に固定
       const charset = 'UTF-8';
       const blob = Utilities.newBlob(csvContent, 'text/csv; charset=' + charset, fileName);
-      // ▲▲▲ ここまで修正 ▲▲▲
       file = folder.createFile(blob);
       fileId = file.getId();
+      console.log('CSV保存完了: ファイルID =', fileId);
+      return fileId;
     } else if (format === 'sheets') {
       const ss = SpreadsheetApp.create(fileName);
       const sheet = ss.getActiveSheet();
       // データがない場合のヘッダー行のみの書き込みに対応
       if (data.length > 0 && data[0].length > 0) {
-        // ヘッダー除去の設定に応じてデータを処理
-        const dataToSave = removeHeader ? data.slice(1) : data;
-        sheet.getRange(1, 1, dataToSave.length, dataToSave[0].length).setValues(dataToSave);
+        // ヘッダー除去の設定またはオリジナルにヘッダーがなかった場合にヘッダーを除去
+        const dataToSave = (removeHeader || originalHasNoHeader) ? data.slice(1) : data;
+        if (dataToSave.length > 0) {
+          sheet.getRange(1, 1, dataToSave.length, dataToSave[0].length).setValues(dataToSave);
+        }
       } else if (data.length > 0) { // ヘッダー行のみの場合
-        sheet.getRange(1, 1, 1, data[0].length).setValues([data[0]]);
+        if (!(removeHeader || originalHasNoHeader)) {
+          sheet.getRange(1, 1, 1, data[0].length).setValues([data[0]]);
+        }
       }
       fileId = ss.getId();
+      console.log('スプレッドシート保存完了: ファイルID =', fileId);
+      return fileId;
     } else {
       throw new Error('無効な保存形式です');
     }
-
-    return fileId;
   } catch (error) {
     console.error('ファイルの保存に失敗しました:', error);
     throw new Error('ファイルの保存に失敗しました: ' + error.message);
@@ -160,9 +200,29 @@ function getProfile(name) {
  */
 function processFileContent(content) {
   try {
+    console.log("ファイル読み込み処理開始");
+    
+    // 空ファイルチェック
+    if (!content || content.trim() === '') {
+      console.warn("空のCSVファイルが指定されました");
+      return [];
+    }
+    
     // Utilities.parseCsv はUTF-8として解釈するため、
     // フロントエンドで正しくデコードされた文字列を渡すことが重要
-    return Utilities.parseCsv(content);
+    const data = Utilities.parseCsv(content);
+    
+    console.log("CSVファイル読み込み完了:");
+    console.log("- 行数:", data.length);
+    if (data.length > 0) {
+      console.log("- 最初の行の列数:", data[0].length);
+      console.log("- 最初の行:", JSON.stringify(data[0]));
+      if (data.length > 1) {
+        console.log("- 2行目:", JSON.stringify(data[1]));
+      }
+    }
+    
+    return data;
   } catch (error) {
     console.error('CSVファイルの解析に失敗しました:', error);
     throw new Error('CSVファイルの解析に失敗しました: ' + error.message);

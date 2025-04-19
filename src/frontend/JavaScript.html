@@ -3,6 +3,7 @@
   let currentFile = null;
   let currentData = null;
   let processedData = null;
+  let hasHeader = true; // ヘッダー行の有無を管理
 
   // ページ読み込み時の初期化
   document.addEventListener('DOMContentLoaded', function() {
@@ -80,6 +81,14 @@
 
     // 保存
     document.getElementById('save').addEventListener('click', saveFile);
+    
+    // ヘッダー有無チェックボックスの状態変更
+    document.getElementById('has-header').addEventListener('change', function() {
+      hasHeader = this.checked;
+      if (currentData) {
+        showPreview(currentData);
+      }
+    });
   }
 
   // 設定フォームをクリアする関数（任意）
@@ -128,6 +137,12 @@
            document.getElementById('pref-code-source').value = '';
            document.getElementById('pref-code-new').value = '都道府県コード';
         }
+        
+        // ヘッダー有無の設定を適用
+        const hasHeaderCheckbox = document.getElementById('has-header');
+        hasHeaderCheckbox.checked = profile.has_header !== undefined ? profile.has_header : true;
+        // グローバル変数も更新
+        hasHeader = hasHeaderCheckbox.checked;
       })
       .withFailureHandler(showError)
       .getProfile(name);
@@ -156,7 +171,8 @@
         enabled: document.getElementById('get-pref-code-enabled').checked,
         source_column: document.getElementById('pref-code-source').value,
         new_column: document.getElementById('pref-code-new').value
-      }
+      },
+      has_header: document.getElementById('has-header').checked
     };
 
     google.script.run
@@ -208,10 +224,24 @@
         const reader = new FileReader();
         reader.onload = function(e) {
           const content = e.target.result;
+          // ヘッダーの有無の状態を保存
+          hasHeader = document.getElementById('has-header').checked;
+          console.log("ファイル読み込み: ヘッダー設定 =", hasHeader ? "あり" : "なし");
+          
           google.script.run
             .withSuccessHandler(function(data) {
               currentData = data;
               processedData = null; // 新しいファイルを読み込んだら変換済みデータはリセット
+              
+              console.log("ファイル読み込み完了:");
+              console.log("- データ行数:", data.length);
+              if (data.length > 0) {
+                console.log("- 最初の行:", data[0]);
+                if (data.length > 1) {
+                  console.log("- 2行目:", data[1]);
+                }
+              }
+              
               showPreview(data);
               document.getElementById('selected-file').textContent = file.name;
               showMessage('ファイルを読み込みました。変換設定を行い「変換実行」を押してください。');
@@ -253,9 +283,17 @@
   function showSaveSuccess(fileId) {
     const fileName = 'converted_data.csv'; // 固定ファイル名
     const removeHeader = document.getElementById('remove-header').checked;
-    const message = removeHeader ? 
-      'ファイル ( ' + fileName + ' ) をヘッダー行を除去してGoogle Driveに保存しました' :
-      'ファイル ( ' + fileName + ' ) をGoogle Driveに保存しました';
+    const originalHasNoHeader = (processedData && processedData.originalHasNoHeader);
+    
+    let message;
+    if (removeHeader) {
+      message = 'ファイル ( ' + fileName + ' ) をヘッダー行を除去してGoogle Driveに保存しました';
+    } else if (originalHasNoHeader) {
+      message = 'ファイル ( ' + fileName + ' ) を元のヘッダーなし形式でGoogle Driveに保存しました';
+    } else {
+      message = 'ファイル ( ' + fileName + ' ) をGoogle Driveに保存しました';
+    }
+    
     showMessage(message);
     const fileUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
     // 選択ファイル表示エリアにリンクを表示
@@ -285,14 +323,35 @@
         enabled: document.getElementById('get-pref-code-enabled').checked,
         source_column: document.getElementById('pref-code-source').value,
         new_column: document.getElementById('pref-code-new').value
-      }
+      },
+      has_header: hasHeader // ヘッダー有無の設定を追加
     };
+
+    // デバッグ用ログ
+    console.log('変換処理開始:');
+    console.log('- ヘッダー設定:', hasHeader ? 'あり' : 'なし');
+    console.log('- データ行数:', currentData.length);
+    if (currentData.length > 0) {
+      console.log('- 最初の行:', currentData[0]);
+    }
 
     showMessage('変換処理を実行中...'); // 処理中メッセージ
 
     google.script.run
       .withSuccessHandler(function(data) {
         processedData = data;
+        
+        // デバッグ用ログ
+        console.log('変換処理完了:');
+        console.log('- 結果データ行数:', data.length);
+        console.log('- ヘッダーなしフラグ:', data.originalHasNoHeader === true ? 'あり' : 'なし');
+        if (data.length > 0) {
+          console.log('- 最初の行:', data[0]);
+          if (data.length > 1) {
+            console.log('- 2行目:', data[1]);
+          }
+        }
+        
         showPreview(data);
         showMessage('変換が完了しました。プレビューを確認し「保存」を押してください。'); // 完了メッセージ
       })
@@ -306,51 +365,113 @@
     preview.innerHTML = ''; // 既存のプレビューをクリア
 
     if (!data || data.length === 0) {
-        preview.textContent = 'データがありません。';
-        return;
+      preview.textContent = 'データがありません。';
+      return;
     }
 
+    // デバッグログ
+    console.log("プレビュー表示: データ", {
+      hasHeader: hasHeader,
+      isProcessed: processedData != null,
+      originalHasNoHeader: data.originalHasNoHeader === true,
+      dataLength: data.length,
+      firstRow: data.length > 0 ? data[0] : []
+    });
+
+    // テーブル要素の作成
     const table = document.createElement('table');
-
-    // ヘッダー行
-    if (data[0] && data[0].length > 0) {
-        const thead = document.createElement('thead');
-        const headerRow = document.createElement('tr');
-        data[0].forEach(header => {
-          const th = document.createElement('th');
-          th.textContent = header;
-          headerRow.appendChild(th);
-        });
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
-    }
-
-
-    // データ行
+    const thead = document.createElement('thead');
     const tbody = document.createElement('tbody');
-    const maxPreviewRows = 10; // ヘッダーを除く最大表示行数
-    const dataRowCount = data.length -1; // データ行の総数
-    const displayRowCount = Math.min(dataRowCount, maxPreviewRows);
-
-    for (let i = 1; i <= displayRowCount; i++) { // 1から開始
-      if (!data[i]) continue; // データ行が存在しない場合はスキップ
-      const row = document.createElement('tr');
-      data[i].forEach(cell => {
-        const td = document.createElement('td');
-        td.textContent = cell;
-        row.appendChild(td);
-      });
-      tbody.appendChild(row);
+    
+    // ヘッダー行とデータ行を分けて準備
+    let headerCells = [];
+    let dataRows = [];
+    
+    // 処理済みデータで、ヘッダーなしフラグがある場合
+    if (data.originalHasNoHeader === true) {
+      console.log("ケース1: 処理済みのヘッダーなしCSV");
+      
+      // 仮想ヘッダーを表示用に作成（実際のデータは使わない）
+      if (data.length > 0) {
+        headerCells = data[0].map((_, i) => `列${i + 1}`);
+      }
+      
+      // 1行目以降をデータ行として使用
+      dataRows = data.slice(1);
+    } 
+    // 処理済みデータで、ヘッダーありの場合
+    else if (processedData && hasHeader) {
+      console.log("ケース2: 処理済みのヘッダーありCSV");
+      
+      // 1行目をヘッダーとして使用
+      headerCells = data[0];
+      
+      // 2行目以降をデータ行として使用
+      dataRows = data.slice(1);
+    } 
+    // 未処理データで、ヘッダーなし設定の場合
+    else if (!processedData && !hasHeader) {
+      console.log("ケース3: 未処理のヘッダーなしCSV");
+      
+      // 仮想ヘッダーを表示用に作成
+      if (data.length > 0) {
+        headerCells = data[0].map((_, i) => `列${i + 1}`);
+      }
+      
+      // すべての行をデータとして表示
+      dataRows = data;
+    } 
+    // 未処理データで、ヘッダーあり設定の場合
+    else {
+      console.log("ケース4: 未処理のヘッダーありCSV");
+      
+      // 1行目をヘッダーとして使用
+      headerCells = data[0];
+      
+      // 2行目以降をデータ行として使用
+      dataRows = data.slice(1);
     }
+    
+    console.log("表示データ準備完了:", {
+      headerCells: headerCells,
+      dataRowsCount: dataRows.length
+    });
+    
+    // ヘッダー行の作成
+    const headerRow = document.createElement('tr');
+    headerCells.forEach(header => {
+      const th = document.createElement('th');
+      th.textContent = header;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    
+    // データ行の表示（最大10行まで）
+    const maxPreviewRows = 10;
+    const displayRowCount = Math.min(dataRows.length, maxPreviewRows);
+    
+    for (let i = 0; i < displayRowCount; i++) {
+      const row = document.createElement('tr');
+      const rowData = dataRows[i];
+      
+      if (rowData) {
+        rowData.forEach(cell => {
+          const td = document.createElement('td');
+          td.textContent = cell || '';
+          row.appendChild(td);
+        });
+        tbody.appendChild(row);
+      }
+    }
+    
     table.appendChild(tbody);
-
-    // プレビューの更新
     preview.appendChild(table);
-
-    // データが最大表示行数を超える場合はその旨を表示
-    if (dataRowCount > maxPreviewRows) {
+    
+    // 表示しきれない行がある場合はその旨を表示
+    if (dataRows.length > maxPreviewRows) {
       const message = document.createElement('p');
-      message.textContent = '... 他 ' + (dataRowCount - maxPreviewRows) + ' 行（プレビューは最大10行まで表示）';
+      message.textContent = `... 他 ${dataRows.length - maxPreviewRows} 行（プレビューは最大${maxPreviewRows}行まで表示）`;
       message.style.marginTop = '10px';
       preview.appendChild(message);
     }

@@ -11,7 +11,39 @@
  */
 function processData(data, settings) {
   try {
+    // 入力データのコピーを作成
     let result = [...data];
+    
+    // デバッグログ
+    console.log('処理開始:');
+    console.log('- データ行数=', result.length);
+    console.log('- ヘッダー設定=', settings.has_header ? 'あり' : 'なし');
+    if (result.length > 0) {
+      console.log('- 処理前の最初の行:', JSON.stringify(result[0]));
+    }
+    
+    // ヘッダーなしCSVを処理するためのフラグ
+    let originalHasNoHeader = false;
+    
+    // ヘッダーがない場合は、列番号をヘッダーとして追加
+    if (settings.has_header === false) {
+      originalHasNoHeader = true; // 元データにヘッダーがなかったことを記録
+      
+      // 1行目のデータから列数を取得
+      if (result.length > 0) {
+        const columnCount = result[0].length;
+        const generatedHeader = Array.from({ length: columnCount }, (_, i) => `列${i + 1}`);
+        
+        // 生成したヘッダー行をデータの先頭に追加
+        result.unshift(generatedHeader);
+        
+        console.log('仮想ヘッダー生成:');
+        console.log('- 生成されたヘッダー:', JSON.stringify(generatedHeader));
+        console.log('- ヘッダー追加後のデータ行数:', result.length);
+        console.log('- ヘッダー追加後の最初の行（仮想ヘッダー）:', JSON.stringify(result[0]));
+        console.log('- ヘッダー追加後の2行目（元の1行目）:', JSON.stringify(result[1]));
+      }
+    }
     
     // 各変換処理を順番に実行   
     if (settings.merge) {
@@ -46,10 +78,29 @@ function processData(data, settings) {
       result = reorderColumns(result, settings.reorder);
     }
     
+    // 最後にヘッダーがなかった場合のフラグを設定
+    if (originalHasNoHeader) {
+      // originalHasNoHeaderプロパティを結果オブジェクトに追加
+      // このフラグでUIと保存処理に元データにヘッダーがなかったことを伝える
+      result.originalHasNoHeader = true;
+      console.log("originalHasNoHeaderフラグを設定しました");
+    }
+    
+    // 処理結果を返す前に最終確認
+    console.log('処理完了:');
+    console.log('- 結果データ行数:', result.length);
+    console.log('- originalHasNoHeader:', result.originalHasNoHeader);
+    if (result.length > 0) {
+      console.log('- 最初の行:', JSON.stringify(result[0]));
+      if (result.length > 1) {
+        console.log('- 2行目:', JSON.stringify(result[1]));
+      }
+    }
+    
     return result;
   } catch (error) {
     console.error('データ変換処理に失敗しました:', error);
-    throw new Error('データ変換処理に失敗しました');
+    throw new Error('データ変換処理に失敗しました: ' + error.message);
   }
 }
 
@@ -75,8 +126,21 @@ function reorderColumns(data, order) {
   // 元のヘッダーのインデックスを取得 (念のため空白を除去して比較)
   const headerIndexes = {};
   originalHeader.forEach((col, index) => {
+    // ヘッダー無しCSV対応のために「列1」「列2」などの形式も検出できるようにする
     headerIndexes[col.trim()] = index;
+    
+    // 自動生成ヘッダーのパターンにも対応
+    const columnPattern = /^列(\d+)$/;
+    const match = col.trim().match(columnPattern);
+    if (match) {
+      // 「列1」→ 0、「列2」→ 1 のようにインデックスを取得
+      const columnIndex = parseInt(match[1]) - 1;
+      // 数値としての列指定にも対応
+      headerIndexes[String(columnIndex + 1)] = index;
+    }
   });
+  
+  console.log('ヘッダーインデックス:', headerIndexes); // デバッグ用
   
   // 新しい列順序でデータを再構築 (データ行のみ)
   for (let i = 1; i < data.length; i++) {
@@ -91,14 +155,27 @@ function reorderColumns(data, order) {
         return;
       }
       
-      // newHeader に含まれる列名に対応する元の列インデックスを探す
-      const originalIndex = headerIndexes[colName];
+      // 「列X」形式の指定にも対応
+      const columnPattern = /^列(\d+)$/;
+      const match = colName.trim().match(columnPattern);
+      let originalIndex;
+      
+      if (match) {
+        // 「列1」形式が指定された場合、元データの適切な列を取得
+        const columnNumber = match[1];
+        originalIndex = headerIndexes[colName.trim()] !== undefined ? 
+                         headerIndexes[colName.trim()] : 
+                         headerIndexes[columnNumber];
+      } else {
+        // 通常の列名指定
+        originalIndex = headerIndexes[colName.trim()];
+      }
+      
       if (originalIndex !== undefined && originalRow.length > originalIndex) {
         // 元の行にデータがあれば追加
         newRow.push(originalRow[originalIndex]);
       } else {
         // 元の列が存在しない、または元の行にデータがない場合は空文字を追加
-        // (例: order に元のCSVにない列名が指定された場合や、行によって列数が異なる場合)
         newRow.push('');
       }
     });
@@ -122,12 +199,48 @@ function mergeColumns(data, mergeSettings) {
   const resultHeader = [...originalHeader]; // 最終的なヘッダー (最初は元のコピー)
   const resultData = originalData.map(row => [...row]); // 最終的なデータ (最初は元のコピー)
 
+  // ヘッダー名を列インデックスに変換するヘルパー関数
+  function getColumnIndex(headers, columnName) {
+    // 通常の列名検索
+    const directIndex = headers.indexOf(columnName);
+    if (directIndex !== -1) return directIndex;
+    
+    // 「列X」形式の場合の処理
+    const columnPattern = /^列(\d+)$/;
+    const match = columnName.match(columnPattern);
+    if (match) {
+      // 「列1」形式かどうかチェック
+      const columnNameIndex = headers.indexOf(columnName);
+      if (columnNameIndex !== -1) return columnNameIndex;
+      
+      // 数値でのインデックス（「列1」なら0）
+      const columnNumber = parseInt(match[1]) - 1;
+      if (columnNumber >= 0 && columnNumber < headers.length) {
+        return columnNumber;
+      }
+    }
+    
+    // どの方法でも見つからない場合
+    return -1;
+  }
+
   // 元ヘッダーのインデックスを事前に作成 (空白除去)
   const originalHeaderIndexes = new Map();
   originalHeader.forEach((col, index) => {
     originalHeaderIndexes.set(col.trim(), index);
+    
+    // 「列X」形式も対応
+    const columnPattern = /^列(\d+)$/;
+    const match = col.trim().match(columnPattern);
+    if (match) {
+      // 数値インデックスも登録 (例: 「列1」→「1」)
+      const columnNumber = match[1];
+      originalHeaderIndexes.set(columnNumber, index);
+    }
   });
-
+  
+  console.log('結合処理用ヘッダーインデックス:', Object.fromEntries(originalHeaderIndexes));
+  
   // 設定をパースして、新しい列の情報と処理内容を保持
   const parsedSettings = mergeSettings
     .split('\n') // 1. 行に分割
@@ -170,13 +283,40 @@ function mergeColumns(data, mergeSettings) {
                                 .filter(s => s !== '');
 
         // カンマ前の部分が有効な列名リストかチェック
-        const arePotentialColsValid = potentialCols.length > 0 && potentialCols.every(col => originalHeaderIndexes.has(col));
+        const arePotentialColsValid = potentialCols.length > 0 && potentialCols.every(col => {
+          // 通常のヘッダー名チェック
+          if (originalHeaderIndexes.has(col)) return true;
+          
+          // 「列X」形式のチェック
+          const columnPattern = /^列(\d+)$/;
+          const match = col.match(columnPattern);
+          if (match) {
+            const columnNumber = match[1];
+            // 数値インデックスまたは元のヘッダーに「列X」が含まれているか
+            return originalHeaderIndexes.has(columnNumber) || originalHeader.indexOf(col) !== -1;
+          }
+          
+          return false;
+        });
 
         if (arePotentialColsValid) {
           // カンマ前の部分が有効な場合、区切り文字候補が列名でないかチェック
           const trimmedDelimiter = potentialDelimiter.trim();
+          
+          // 区切り文字候補が列名かどうかをチェック (「列X」形式も考慮)
+          let isDelimiterColumn = originalHeaderIndexes.has(trimmedDelimiter);
+          if (!isDelimiterColumn) {
+            // 「列X」形式のチェック
+            const columnPattern = /^列(\d+)$/;
+            const match = trimmedDelimiter.match(columnPattern);
+            if (match) {
+              const columnNumber = match[1];
+              isDelimiterColumn = originalHeaderIndexes.has(columnNumber) || originalHeader.indexOf(trimmedDelimiter) !== -1;
+            }
+          }
+          
           // 区切り文字候補が空文字列でない、かつヘッダーに存在するか
-          if (trimmedDelimiter !== '' && originalHeaderIndexes.has(trimmedDelimiter)) {
+          if (trimmedDelimiter !== '' && isDelimiterColumn) {
             // 区切り文字候補が有効な列名だった -> フォールバック（全体を列名として解釈）
             useFallback = true;
           } else {
@@ -196,7 +336,25 @@ function mergeColumns(data, mergeSettings) {
         const allPotentialCols = sourcesAndDelimiterPart.split(',')
                                   .map(s => s.trim())
                                   .filter(s => s !== '');
-        if (allPotentialCols.length > 0 && allPotentialCols.every(col => originalHeaderIndexes.has(col))) {
+        
+        // 「列X」形式も考慮した列名リストかチェック
+        const areAllValid = allPotentialCols.length > 0 && allPotentialCols.every(col => {
+          // 通常のヘッダー名チェック
+          if (originalHeaderIndexes.has(col)) return true;
+          
+          // 「列X」形式のチェック
+          const columnPattern = /^列(\d+)$/;
+          const match = col.match(columnPattern);
+          if (match) {
+            const columnNumber = match[1];
+            // 数値インデックスまたは元のヘッダーに「列X」が含まれているか
+            return originalHeaderIndexes.has(columnNumber) || originalHeader.indexOf(col) !== -1;
+          }
+          
+          return false;
+        });
+        
+        if (areAllValid) {
           sourceCols = allPotentialCols;
           delimiter = ''; // 区切り文字なし
         } else {
@@ -263,11 +421,33 @@ function mergeColumns(data, mergeSettings) {
 
     // 元データのインデックスを再確認 (大文字小文字を区別しない場合などはここで調整)
     const sourceIndexes = setting.sourceCols.map(sourceColName => {
-        const index = originalHeaderIndexes.get(sourceColName); // sourceColName は既にトリム済みのはず
-        if (index === undefined) {
-            console.warn(`結合元列 "${sourceColName}" が元のヘッダーに見つかりません。空文字として扱われます。`);
+        const trimmedName = sourceColName.trim();
+        // 直接検索
+        const directIndex = originalHeaderIndexes.get(trimmedName);
+        if (directIndex !== undefined) {
+          return directIndex;
         }
-        return index;
+        
+        // 「列X」形式のチェック
+        const columnPattern = /^列(\d+)$/;
+        const match = trimmedName.match(columnPattern);
+        if (match) {
+          // 列番号を取得して検索
+          const columnNumber = match[1];
+          const colByNumber = originalHeaderIndexes.get(columnNumber);
+          if (colByNumber !== undefined) {
+            return colByNumber;
+          }
+        }
+        
+        // インデックスで直接取得
+        const headerIndex = originalHeader.indexOf(trimmedName);
+        if (headerIndex !== -1) {
+          return headerIndex;
+        }
+        
+        console.warn(`結合元列 "${sourceColName}" が元のヘッダーに見つかりません。空文字として扱われます。`);
+        return undefined;
     });
 
 
@@ -303,28 +483,71 @@ function mergeColumns(data, mergeSettings) {
  * @return {Array} 抽出後のデータ
  */
 function extractStrings(data, extractSettings) {
-  const settings = extractSettings.split('\n');
+  const settings = extractSettings.split('\n').filter(line => line.trim() !== '');
   let result = [...data];
   
+  // 列名から列インデックスを取得するヘルパー関数
+  function getColumnIndex(headers, columnName) {
+    // 通常の列名検索
+    const directIndex = headers.indexOf(columnName);
+    if (directIndex !== -1) return directIndex;
+    
+    // 「列X」形式の場合の処理
+    const columnPattern = /^列(\d+)$/;
+    const match = columnName.match(columnPattern);
+    if (match) {
+      // 「列1」形式かどうかチェック
+      const columnNameIndex = headers.indexOf(columnName);
+      if (columnNameIndex !== -1) return columnNameIndex;
+      
+      // 数値でのインデックス（「列1」なら0）
+      const columnNumber = parseInt(match[1]) - 1;
+      if (columnNumber >= 0 && columnNumber < headers.length) {
+        return columnNumber;
+      }
+    }
+    
+    // どの方法でも見つからない場合
+    return -1;
+  }
+  
   settings.forEach(setting => {
-    const [newCol, sourceCol, start, length] = setting.split(':');
+    const parts = setting.split(':');
+    if (parts.length !== 4) {
+      console.warn(`不正な抽出設定フォーマット（スキップ）: ${setting}。期待される形式: "新項目名:抽出元項目:開始位置:文字数"`);
+      return;
+    }
+    
+    const [newCol, sourceCol, start, length] = parts.map(p => p.trim());
     const startPos = parseInt(start) - 1;
     const len = parseInt(length);
+    
+    // パラメータの検証
+    if (isNaN(startPos) || isNaN(len) || startPos < 0 || len < 0) {
+      console.warn(`不正な抽出設定パラメータ（スキップ）: ${setting}。開始位置は1以上、文字数は0以上の整数で指定してください。`);
+      return;
+    }
+    
+    // 抽出元列のインデックスを取得
+    const sourceIndex = getColumnIndex(result[0], sourceCol);
+    if (sourceIndex === -1) {
+      console.warn(`抽出元列 "${sourceCol}" が見つかりません（抽出設定をスキップ）: ${setting}`);
+      return;
+    }
     
     // ヘッダーに新しい列を追加
     result[0].push(newCol);
     
     // 各行のデータを抽出
     for (let i = 1; i < result.length; i++) {
-      const sourceIndex = result[0].indexOf(sourceCol);
-      if (sourceIndex === -1) {
-        result[i].push('');
+      if (sourceIndex >= result[i].length) {
+        result[i].push(''); // 対象列が存在しない場合は空文字を追加
         continue;
       }
       
       const value = result[i][sourceIndex].toString();
       if (startPos >= value.length) {
-        result[i].push('');
+        result[i].push(''); // 開始位置が文字列長を超える場合は空文字を追加
       } else {
         result[i].push(value.substr(startPos, len));
       }
@@ -344,17 +567,49 @@ function removeCharacters(data, removeSettings) {
   const settings = removeSettings.split('\n');
   let result = [...data];
   
+  // 列名から列インデックスを取得するヘルパー関数
+  function getColumnIndex(headers, columnName) {
+    // 通常の列名検索
+    const directIndex = headers.indexOf(columnName);
+    if (directIndex !== -1) return directIndex;
+    
+    // 「列X」形式の場合の処理
+    const columnPattern = /^列(\d+)$/;
+    const match = columnName.match(columnPattern);
+    if (match) {
+      // 「列1」形式かどうかチェック
+      const columnNameIndex = headers.indexOf(columnName);
+      if (columnNameIndex !== -1) return columnNameIndex;
+      
+      // 数値でのインデックス（「列1」なら0）
+      const columnNumber = parseInt(match[1]) - 1;
+      if (columnNumber >= 0 && columnNumber < headers.length) {
+        return columnNumber;
+      }
+    }
+    
+    // どの方法でも見つからない場合
+    return -1;
+  }
+  
   settings.forEach(setting => {
     const [col, chars] = setting.split(':');
-    const colIndex = result[0].indexOf(col);
-    if (colIndex === -1) return;
+    if (!col || !chars) {
+      console.warn('不正な除去設定フォーマット（スキップ）:', setting);
+      return;
+    }
+    
+    const colIndex = getColumnIndex(result[0], col.trim());
+    if (colIndex === -1) {
+      console.warn(`列 "${col}" が見つかりません（除去設定をスキップ）`);
+      return;
+    }
     
     const characters = chars.split(',');
     for (let i = 1; i < result.length; i++) {
       let value = result[i][colIndex].toString();
       characters.forEach(char => {
-        // 正規表現メタ文字をエスケープするヘルパー関数を使うか、
-        // 単純な置換を繰り返す
+        // 正規表現メタ文字をエスケープするヘルパー関数を使う
         const escapedChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // メタ文字エスケープ例
         value = value.replace(new RegExp(escapedChar, 'g'), '');
       });
@@ -375,10 +630,43 @@ function addCharacters(data, addSettings) {
   const settings = addSettings.split('\n');
   let result = [...data];
   
+  // 列名から列インデックスを取得するヘルパー関数
+  function getColumnIndex(headers, columnName) {
+    // 通常の列名検索
+    const directIndex = headers.indexOf(columnName);
+    if (directIndex !== -1) return directIndex;
+    
+    // 「列X」形式の場合の処理
+    const columnPattern = /^列(\d+)$/;
+    const match = columnName.match(columnPattern);
+    if (match) {
+      // 「列1」形式かどうかチェック
+      const columnNameIndex = headers.indexOf(columnName);
+      if (columnNameIndex !== -1) return columnNameIndex;
+      
+      // 数値でのインデックス（「列1」なら0）
+      const columnNumber = parseInt(match[1]) - 1;
+      if (columnNumber >= 0 && columnNumber < headers.length) {
+        return columnNumber;
+      }
+    }
+    
+    // どの方法でも見つからない場合
+    return -1;
+  }
+  
   settings.forEach(setting => {
     const [col, position, text] = setting.split(':');
-    const colIndex = result[0].indexOf(col);
-    if (colIndex === -1) return;
+    if (!col || !position || text === undefined) {
+      console.warn('不正な追加設定フォーマット（スキップ）:', setting);
+      return;
+    }
+    
+    const colIndex = getColumnIndex(result[0], col.trim());
+    if (colIndex === -1) {
+      console.warn(`列 "${col}" が見つかりません（追加設定をスキップ）`);
+      return;
+    }
     
     for (let i = 1; i < result.length; i++) {
       const value = result[i][colIndex].toString();
@@ -390,18 +678,143 @@ function addCharacters(data, addSettings) {
 }
 
 /**
+ * 文字列の置換
+ * 指定された列内の文字列を検索し、別の文字列に置換します。
+ * @param {Array<Array<string>>} data - 変換対象のデータ (最初の行はヘッダー)
+ * @param {string} replaceSettings - 置換設定。各行に "対象列名:検索文字列:置換後文字列" の形式で記述。
+ *                                   例: "備考:（株）:(株式会社)\n住所:東京都:ＴＫ都"
+ * @return {Array<Array<string>>} 置換後のデータ
+ */
+function replaceStrings(data, replaceSettings) {
+  // 元データを変更しないようにディープコピーを作成
+  let result = data.map(row => [...row]);
+  const header = result[0];
+  
+  // 列名から列インデックスを取得するヘルパー関数
+  function getColumnIndex(headers, columnName) {
+    // 通常の列名検索
+    const directIndex = headers.indexOf(columnName);
+    if (directIndex !== -1) return directIndex;
+    
+    // 「列X」形式の場合の処理
+    const columnPattern = /^列(\d+)$/;
+    const match = columnName.match(columnPattern);
+    if (match) {
+      // 「列1」形式かどうかチェック
+      const columnNameIndex = headers.indexOf(columnName);
+      if (columnNameIndex !== -1) return columnNameIndex;
+      
+      // 数値でのインデックス（「列1」なら0）
+      const columnNumber = parseInt(match[1]) - 1;
+      if (columnNumber >= 0 && columnNumber < headers.length) {
+        return columnNumber;
+      }
+    }
+    
+    // どの方法でも見つからない場合
+    return -1;
+  }
+
+  // 設定を解析
+  const settings = replaceSettings
+    .split('\n') // 改行で各設定に分割
+    .map(line => line.trim()) // 前後の空白を除去
+    .filter(line => line !== ''); // 空行を除去
+
+  settings.forEach(setting => {
+    const parts = setting.split(':');
+    // 設定は "対象列名:検索文字列:置換後文字列" の3つの部分で構成される
+    if (parts.length !== 3) {
+      console.warn(`不正な置換設定フォーマット（スキップ）: ${setting}。期待される形式: "列名:検索文字列:置換後文字列"`);
+      return; // この不正な設定をスキップ
+    }
+    // 各部分の前後の空白を除去
+    const [colName, searchString, replaceString] = parts.map(s => s.trim());
+
+    // 列名や検索文字列が空の場合は無効な設定としてスキップ（置換後文字列は空でもOK）
+    if (colName === '' || searchString === '') {
+        console.warn(`不正な置換設定: 列名と検索文字列は空にできません（スキップ）: ${setting}`);
+        return;
+    }
+
+    // 対象列のインデックスを取得
+    const colIndex = getColumnIndex(header, colName);
+    if (colIndex === -1) {
+      console.warn(`置換対象の列 "${colName}" が見つかりません（設定をスキップ）: ${setting}`);
+      return; // 列が見つからない場合はスキップ
+    }
+
+    // データ行を処理 (ヘッダー行を除くため i=1 から開始)
+    for (let i = 1; i < result.length; i++) {
+      // 行に対象列が存在するか確認
+      if (result[i].length > colIndex) {
+        let originalValue = result[i][colIndex];
+
+        // 値が null や undefined の場合、空文字列として扱う
+        if (originalValue === null || originalValue === undefined) {
+            originalValue = '';
+        } else {
+            // 置換前に値を文字列に変換
+            originalValue = originalValue.toString();
+        }
+
+        // String.prototype.replaceAll() を使用して、列内のすべての検索文字列を置換
+        try {
+            result[i][colIndex] = originalValue.replaceAll(searchString, replaceString);
+        } catch (e) {
+            // replaceAll でエラーが発生した場合 (例: searchString が空の場合など、ただし上のチェックで回避済みのはず)
+            console.error(`置換処理中にエラーが発生しました。設定: "${setting}", 行: ${i+1}, 元の値: "${originalValue}", エラー: ${e.message}`);
+        }
+      }
+    }
+  });
+
+  return result;
+}
+
+/**
  * 都道府県名の除去
  * @param {Array} data - 変換対象のデータ
  * @param {string} columns - 対象列（カンマ区切り）
  * @return {Array} 除去後のデータ
  */
 function removePrefectureNames(data, columns) {
-  const targetColumns = columns.split(',');
+  const targetColumns = columns.split(',').map(c => c.trim()).filter(c => c !== '');
   let result = [...data];
   
+  // 列名から列インデックスを取得するヘルパー関数
+  function getColumnIndex(headers, columnName) {
+    // 通常の列名検索
+    const directIndex = headers.indexOf(columnName);
+    if (directIndex !== -1) return directIndex;
+    
+    // 「列X」形式の場合の処理
+    const columnPattern = /^列(\d+)$/;
+    const match = columnName.match(columnPattern);
+    if (match) {
+      // 「列1」形式かどうかチェック
+      const columnNameIndex = headers.indexOf(columnName);
+      if (columnNameIndex !== -1) return columnNameIndex;
+      
+      // 数値でのインデックス（「列1」なら0）
+      const columnNumber = parseInt(match[1]) - 1;
+      if (columnNumber >= 0 && columnNumber < headers.length) {
+        return columnNumber;
+      }
+    }
+    
+    // どの方法でも見つからない場合
+    return -1;
+  }
+  
   targetColumns.forEach(col => {
-    const colIndex = result[0].indexOf(col);
-    if (colIndex === -1) return;
+    if (!col) return;
+    
+    const colIndex = getColumnIndex(result[0], col);
+    if (colIndex === -1) {
+      console.warn(`列 "${col}" が見つかりません（都道府県名除去設定をスキップ）`);
+      return;
+    }
     
     for (let i = 1; i < result.length; i++) {
       const value = result[i][colIndex].toString();
@@ -424,8 +837,37 @@ function removePrefectureNames(data, columns) {
  */
 function getPrefectureCodes(data, sourceColumn, newColumn) {
   let result = [...data];
-  const sourceIndex = result[0].indexOf(sourceColumn);
-  if (sourceIndex === -1) return result;
+  
+  // 列名から列インデックスを取得するヘルパー関数
+  function getColumnIndex(headers, columnName) {
+    // 通常の列名検索
+    const directIndex = headers.indexOf(columnName);
+    if (directIndex !== -1) return directIndex;
+    
+    // 「列X」形式の場合の処理
+    const columnPattern = /^列(\d+)$/;
+    const match = columnName.match(columnPattern);
+    if (match) {
+      // 「列1」形式かどうかチェック
+      const columnNameIndex = headers.indexOf(columnName);
+      if (columnNameIndex !== -1) return columnNameIndex;
+      
+      // 数値でのインデックス（「列1」なら0）
+      const columnNumber = parseInt(match[1]) - 1;
+      if (columnNumber >= 0 && columnNumber < headers.length) {
+        return columnNumber;
+      }
+    }
+    
+    // どの方法でも見つからない場合
+    return -1;
+  }
+  
+  const sourceIndex = getColumnIndex(result[0], sourceColumn.trim());
+  if (sourceIndex === -1) {
+    console.warn(`都道府県名を含む列 "${sourceColumn}" が見つかりません（都道府県コード取得をスキップ）`);
+    return result;
+  }
   
   // ヘッダーに新しい列を追加
   result[0].push(newColumn);
@@ -486,79 +928,4 @@ function getPrefectureCode(prefecture) {
   };
   
   return codes[prefecture] || '';
-} 
-
-/**
- * 文字列の置換
- * 指定された列内の文字列を検索し、別の文字列に置換します。
- * @param {Array<Array<string>>} data - 変換対象のデータ (最初の行はヘッダー)
- * @param {string} replaceSettings - 置換設定。各行に "対象列名:検索文字列:置換後文字列" の形式で記述。
- *                                   例: "備考:（株）:(株式会社)\n住所:東京都:ＴＫ都"
- * @return {Array<Array<string>>} 置換後のデータ
- */
-function replaceStrings(data, replaceSettings) {
-  // 元データを変更しないようにディープコピーを作成
-  let result = data.map(row => [...row]);
-  const header = result[0];
-  // ヘッダー名とインデックスのマップを作成 (空白除去)
-  const headerIndexes = new Map(header.map((col, index) => [col.trim(), index]));
-
-  // 設定を解析
-  const settings = replaceSettings
-    .split('\n') // 改行で各設定に分割
-    .map(line => line.trim()) // 前後の空白を除去
-    .filter(line => line !== ''); // 空行を除去
-
-  settings.forEach(setting => {
-    const parts = setting.split(':');
-    // 設定は "対象列名:検索文字列:置換後文字列" の3つの部分で構成される
-    if (parts.length !== 3) {
-      console.warn(`不正な置換設定フォーマット（スキップ）: ${setting}。期待される形式: "列名:検索文字列:置換後文字列"`);
-      return; // この不正な設定をスキップ
-    }
-    // 各部分の前後の空白を除去
-    const [colName, searchString, replaceString] = parts.map(s => s.trim());
-
-    // 列名や検索文字列が空の場合は無効な設定としてスキップ（置換後文字列は空でもOK）
-    if (colName === '' || searchString === '') {
-        console.warn(`不正な置換設定: 列名と検索文字列は空にできません（スキップ）: ${setting}`);
-        return;
-    }
-
-    // 対象列のインデックスを取得
-    const colIndex = headerIndexes.get(colName);
-    if (colIndex === undefined) {
-      console.warn(`置換対象の列 "${colName}" が見つかりません（設定をスキップ）: ${setting}`);
-      return; // 列が見つからない場合はスキップ
-    }
-
-    // データ行を処理 (ヘッダー行を除くため i=1 から開始)
-    for (let i = 1; i < result.length; i++) {
-      // 行に対象列が存在するか確認
-      if (result[i].length > colIndex) {
-        let originalValue = result[i][colIndex];
-
-        // 値が null や undefined の場合、空文字列として扱う
-        if (originalValue === null || originalValue === undefined) {
-            originalValue = '';
-        } else {
-            // 置換前に値を文字列に変換
-            originalValue = originalValue.toString();
-        }
-
-        // String.prototype.replaceAll() を使用して、列内のすべての検索文字列を置換
-        // 注意: searchString に正規表現の特殊文字が含まれていても、ここでは文字列として扱われます。
-        try {
-            result[i][colIndex] = originalValue.replaceAll(searchString, replaceString);
-        } catch (e) {
-            // replaceAll でエラーが発生した場合 (例: searchString が空の場合など、ただし上のチェックで回避済みのはず)
-            console.error(`置換処理中にエラーが発生しました。設定: "${setting}", 行: ${i+1}, 元の値: "${originalValue}", エラー: ${e.message}`);
-            // エラーが発生しても処理を続行するか、ここでエラーを投げるか選択
-            // throw new Error(`置換処理エラー: ${e.message}`);
-        }
-      }
-    }
-  });
-
-  return result;
 }
